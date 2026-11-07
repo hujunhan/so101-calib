@@ -110,3 +110,18 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   report has the tools and Python API failing with a ZED 2i on that setup. S5's click-to-point needs no depth
   map for objects on the table (a ray from the pixel to the table plane).
 - **Options:** UVC only; UVC plus trying the SDK for depth; the SDK as the main path.
+
+## 2026-11-07: S4 hand-eye from one session: wrist camera, ZED and joint offsets
+
+- **Decided:** the iPad board lies still on the table. The user poses the limp arm once so the wrist camera sees
+  it; then the arm (torque on, P = 32, SafeArm) moves itself through ~20 poses around it. One nonlinear fit of
+  the reprojection error gives the wrist camera in the gripper (X) and the board in the base (Y), with and
+  without joint zero offsets (lift, elbow, wrist_flex); offsets are kept only if they predict held-out views
+  better. The ZED sees the same still board before and after: base -> ZED = Y composed with the ZED's view of
+  the board, so no marker on the gripper is needed.
+- **Why:** a nonlinear reprojection fit of X and Y together beats closed-form hand-eye solutions (Ali et al.,
+  Sensors 2019); the closed form only starts it. A camera measures without touching, so the joint offsets that
+  S2 could not get from hand-guided touches may come out here at no extra cost. The user has no printer for a
+  gripper marker, and the iPad is too big to carry.
+- **Options:** poses automatic around a taught pose, or by teleoperation; offsets fitted or not; the ZED by the
+  shared board, or by a marker on the gripper.
