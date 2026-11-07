@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 so101-servo = "so101_calib.servo_cli:main"
 so101-statics = "so101_calib.statics_cli:main"
+so101-track = "so101_calib.track_cli:main"
 
 [project.optional-dependencies]
 hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@c38261bc456634f5d529626ee7f53e33ae157fe2"]

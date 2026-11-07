@@ -235,3 +235,15 @@ def fit_joint(err_deg: np.ndarray, side: np.ndarray, tau: np.ndarray | None) -> 
 
 def joint_names() -> tuple[str, ...]:
     return ARM_JOINTS
+
+
+def load_run(path) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """An S1b run: error (deg, command - measured, (n, 5)), holding torques (N m, (n, 5)), side, meta."""
+    import json
+
+    z = np.load(path)
+    meta = json.loads(str(z["meta"]))
+    grav = Gravity(meta["payload_g"] / 1000, meta.get("payload_pos_m"))
+    err = np.degrees(z["q_cmd"] - z["q_meas"])[:, :5]
+    tau = np.array([grav.tau(q) for q in z["q_cmd"]])
+    return err, tau, z["side"].astype(float), meta

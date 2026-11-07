@@ -253,11 +253,7 @@ def preview(viewer: bool) -> None:
 # -- analysis ------------------------------------------------------------------------------------------------
 def analyze(path: Path) -> None:
     z = np.load(path)
-    meta = json.loads(str(z["meta"]))
-    grav = st.Gravity(meta["payload_g"] / 1000, meta.get("payload_pos_m"))
-    q_cmd, q_meas, side = z["q_cmd"], z["q_meas"], z["side"].astype(float)
-    err = np.degrees(q_cmd - q_meas)[:, :5]
-    tau = np.array([grav.tau(q) for q in q_cmd])
+    err, tau, side, meta = st.load_run(path)
     load = z["load"][:, :5].astype(float)
     rows, fits = [], {}
     for k, name in enumerate(ARM_JOINTS):

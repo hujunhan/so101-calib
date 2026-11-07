@@ -9,7 +9,8 @@ and docs/DESIGN.md say what this repo starts from.
   spring with a load-dependent rest band, error = c * tau + side * (b + k |tau|) + o, tau from the URDF; fitted
   without payload, it predicts a 100 g payload run to 0.08-0.21 deg RMS. Use the fit on both runs
   (c = 1.62 / 1.79 / 1.81 deg/N m for lift / elbow / wrist).
-- **Next:** S1c: compensation on M1's circle (command = target + model error). Open for S3: ZED SDK vs UVC; the
+- **Next:** S1c: compensation on M1's circle; `so101-track` written (model fit in results/s1/servo_model.json,
+  virtual-servo preview in `plan`); the user runs `so101-track run`, Claude runs `analyze`. Open for S3: ZED SDK vs UVC; the
   ChArUco board (the user has no print; an iPad is the likely board for intrinsics and eye-in-hand, not for
   eye-to-hand, which needs a light marker on the gripper).
 
