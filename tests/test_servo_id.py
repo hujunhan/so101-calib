@@ -59,3 +59,11 @@ def test_expected_following_error_is_delay_times_speed_plus_sag():
     peak_speed = 2 * np.pi * max(sid.SINE_FREQS_HZ) * sid.SINE_AMP_DEG  # deg/s
     expected = np.degrees(sid.expected_following_error(ticks, HZ)[0])
     assert expected == pytest.approx(peak_speed * sid.EXPECTED_DELAY_S + sid.EXPECTED_SAG_DEG, rel=0.1)
+
+
+def test_hold_jitter_is_zero_at_rest_and_sees_an_oscillation():
+    t_sent, q_cmd, t_dense, q_dense, segs = synthetic_run(0.080, 0.9)
+    hold = [s for s in segs if s.kind == "hold"][-1]
+    assert sid.hold_jitter_deg(t_sent, t_dense, q_dense, hold, 2) == pytest.approx(0)
+    q_dense[:, 2] += np.radians(0.2) * np.sin(2 * np.pi * 8 * t_dense)
+    assert sid.hold_jitter_deg(t_sent, t_dense, q_dense, hold, 2) == pytest.approx(0.4, abs=0.02)

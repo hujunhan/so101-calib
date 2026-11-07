@@ -1,7 +1,8 @@
 """so101-servo: S1a servo identification on the real arm. Every motion goes through so101-core's SafeArm.
 
     so101-servo plan                      no hardware: the test program, its duration, the preflight checks
-    so101-servo run [--joints a b ...]    torque ON: move to the test pose, run the program on each joint,
+    so101-servo run [--joints a b ...] [--p 32]
+                                          torque ON: move to the test pose, run the program on each joint,
                                           save every read to results/s1/servo_<time>.npz
     so101-servo analyze FILE.npz          step and sine metrics -> FILE.md and FILE.png
 
@@ -93,10 +94,10 @@ def describe_plan(safety: SafetyLayer, q_now: np.ndarray, joints: list[int]) -> 
     return q0, lines
 
 
-def run(joints: list[int]) -> None:
+def run(joints: list[int], position_p: int | None = None) -> None:
     devices = DeviceConfig.load()
     jm = JointMap.load()
-    arm = SafeArm(devices, joint_map=jm)
+    arm = SafeArm(devices, joint_map=jm, position_p=position_p)
     safety = arm.safety
     hz = safety.cfg.rate_hz
     rest = jm.rest
@@ -111,12 +112,14 @@ def run(joints: list[int]) -> None:
     if not ask_yes("The arm will be POWERED (torque on)."):
         return
     RESULTS.mkdir(parents=True, exist_ok=True)
-    out = RESULTS / f"servo_{datetime.now():%Y%m%d_%H%M%S}.npz"
+    tag = "" if position_p is None else f"_p{position_p}"
+    out = RESULTS / f"servo_{datetime.now():%Y%m%d_%H%M%S}{tag}.npz"
     data: dict[str, np.ndarray] = {}
     meta = {
         "date": datetime.now().isoformat(timespec="seconds"),
         "rate_hz": hz,
         "test_pose_rad": q0.tolist(),
+        "position_p": position_p,
         "joints": [],
         "regs": {},
     }
@@ -137,6 +140,7 @@ def run(joints: list[int]) -> None:
             t_start = time.perf_counter()
             res = arm.follow(ticks, dense=True)
             load = {k: int(v) for k, v in bus.sync_read("Present_Load", normalize=False).items()}
+            temp = {k: int(v) for k, v in bus.sync_read("Present_Temperature", normalize=False).items()}
             data |= {
                 f"{name}/t": res.t,
                 f"{name}/t_sent": res.t_sent,
@@ -148,6 +152,7 @@ def run(joints: list[int]) -> None:
             }
             meta["joints"].append(name)
             meta[f"{name}/load_after"] = load
+            meta[f"{name}/temp_after"] = temp
             meta[f"{name}/filter"] = {"clipped": res.clipped, "step_limited": res.step_limited}
             np.savez_compressed(
                 out, meta=json.dumps(meta), **data
@@ -156,7 +161,8 @@ def run(joints: list[int]) -> None:
             print(
                 f"  done in {time.perf_counter() - t_start:.1f} s; {len(res.t_dense)} reads, median "
                 f"{1000 * np.median(dt):.2f} ms apart; "
-                f"filter clipped {res.clipped}, capped {res.step_limited}"
+                f"filter clipped {res.clipped}, capped {res.step_limited}; "
+                f"temperatures {list(temp.values())} C"
             )
         print(f"Saved {out}. Moving back towards the rest pose.")
         arm.move_to(rest, speed_rad_s=MOVE_SPEED)
@@ -203,11 +209,14 @@ def analyze(path: Path) -> None:
         coup = sid.coupling_deg(q_cmd, q_dense, t_dense, t_sent, j)
         worst = max(coup, key=coup.get)
         firsts = [m["t_first_ms"] for m in steps if m["t_first_ms"] is not None]
+        jitter = max(sid.hold_jitter_deg(t_sent, t_dense, q_dense, s, j) for s in segs if s.kind == "hold")
+        temp = meta.get(f"{name}/temp_after", {}).get(name)
         top, bottom = np.mean(peaks, axis=0)
         rows_summary.append(
             f"| {name} | {np.median(firsts):.0f} | "
             f"{_fmt(np.median([m['t50_ms'] for m in big]) if big else None, 0)} | "
             f"{top:+.2f} | {bottom:+.2f} | {(top + bottom) / 2:+.2f} | {(top - bottom) / 2:.2f} | "
+            f"{jitter:.2f} | {_fmt(temp, 0)} | "
             f"{np.median([m['delay_ms'] for m in sines]):.0f} | "
             f"{np.mean([m['error_deg'] for m in steps]):+.2f} | "
             f"{np.mean([abs(m['shortfall_deg']) for m in steps]):.2f} | {worst} {coup[worst]:.2f} |"
@@ -217,7 +226,8 @@ def analyze(path: Path) -> None:
     md = [
         f"# S1a servo identification: {path.name}",
         "",
-        f"Date {meta['date']}; command rate {hz:.0f} Hz; reads {1000 * np.median(dt):.2f} ms apart (median, "
+        f"Date {meta['date']}; position gain P = {meta.get('position_p') or 16}; "
+        f"command rate {hz:.0f} Hz; reads {1000 * np.median(dt):.2f} ms apart (median, "
         f"last joint). Test pose (deg) {np.round(np.degrees(meta['test_pose_rad']), 1).tolist()}. "
         f"Servo registers: {meta['regs']}.",
         "",
@@ -228,12 +238,16 @@ def analyze(path: Path) -> None:
         "",
         "t_first: from the step command to the first change of 1.5 encoder counts. Center = mean of the "
         "errors at the two turning points (the static offset, e.g. gravity sag); half-width = half their "
-        "difference (the band the servo can rest anywhere in: deadband and friction).",
+        "difference (the band the servo can rest anywhere in: deadband and friction). "
+        "Jitter: largest peak to peak of the joint over the last 0.5 s of a hold "
+        "(oscillation would show here; one count is "
+        f"{sid.COUNT_DEG:.2f} deg).",
         "",
         "| Joint | Step t_first (ms, median) | Step t50 (ms, steps >= 1 deg) | Error at sine top (deg) | "
-        "Error at sine bottom | Center | Half-width | Sine delay (ms, median) | "
+        "Error at sine bottom | Center | Half-width | Jitter at rest (deg p-p) | Temp after (C) | "
+        "Sine delay (ms, median) | "
         "Mean error after settling (deg) | Mean shortfall (deg) | Other joint moved most (deg p-p) |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
         *rows_summary,
         "",
         "## Steps",
@@ -301,6 +315,7 @@ def main() -> None:
     sub.add_parser("plan")
     r = sub.add_parser("run")
     r.add_argument("--joints", nargs="+", default=list(ARM_JOINTS), choices=ARM_JOINTS)
+    r.add_argument("--p", type=int, default=None, help="servo position gain (default: LeRobot's 16)")
     a = sub.add_parser("analyze")
     a.add_argument("file", type=Path)
     args = p.parse_args()
@@ -314,7 +329,7 @@ def main() -> None:
         problems = check_program(safety, q0, joints)
         print("Preflight: " + ("ok" if not problems else "\n  " + "\n  ".join(problems)))
     elif args.cmd == "run":
-        run([JOINTS.index(n) for n in args.joints])
+        run([JOINTS.index(n) for n in args.joints], args.p)
     else:
         analyze(args.file)
 

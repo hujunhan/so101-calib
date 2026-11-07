@@ -160,6 +160,13 @@ def sine_peak_errors(t_sent, q_cmd, t_dense, q_dense, seg: Segment, joint: int) 
     return float(c.max() - m.max()), float(c.min() - m.min())
 
 
+def hold_jitter_deg(t_sent, t_dense, q_dense, seg: Segment, joint: int) -> float:
+    """Peak to peak of the joint (deg) over the last 0.5 s of a hold: zero for a servo at rest."""
+    t_end = t_sent[seg.end - 1]
+    m = (t_dense > t_end - 0.5) & (t_dense <= t_end)
+    return float(np.ptp(np.degrees(q_dense[m, joint]))) if m.any() else 0.0
+
+
 def coupling_deg(q_cmd, q_dense, t_dense, t_sent, joint: int) -> dict:
     """How far the other joints moved (peak to peak, deg) while this one was tested."""
     m = t_dense >= t_sent[0] + SETTLE_S / 2

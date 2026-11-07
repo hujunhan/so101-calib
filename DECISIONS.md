@@ -23,3 +23,14 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   it was the measurement itself.
 - **Options:** dense reads in so101-core (reusable by later repos); extra reads inside `follow`'s `on_tick`
   callback, in this repo only (works, but bends a logging hook into a sampler).
+
+## 2026-11-06: test the servo gain P = 32 before S1b
+
+- **Decided:** rerun S1a with position gain P = 32 (the STS3215 factory value) and compare with P = 16
+  (LeRobot's setting) before the pose sweep (S1b). `SafeArm(position_p=...)` in so101-core c38261b; the
+  default stays 16.
+- **Why:** S1a showed a +-0.4 deg rest band on every joint and up to 3 deg of one-sided error against gravity.
+  A position servo makes torque from error times gain, so both should shrink with a higher P. S1b and S1c
+  depend on P, so measuring them at a gain we then change would be wasted.
+- **Options:** A/B at P = 32 first; S1b at P = 16 as planned (matches LeRobot's default, which M3 will use).
+- **Watch:** oscillation at rest (jitter column) and temperature after each joint.
