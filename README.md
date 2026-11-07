@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** S1a and S1b done: servo timing, and a static error model over the workspace at P = 32. Next: payload check, then S1c (compensation).
+> **Status (2026-11-06):** S1a and S1b done: servo timing, and a static error model over the workspace at P = 32, checked with a 100 g payload. Next: S1c (compensation).
 
 ## What M1 hands over
 
@@ -127,6 +127,33 @@ Model: error (command - measured) = c * tau + side * (b + k * |tau|) + o, with s
   the elbow and wrist (-0.41, -0.53): the model torque is the better input.
 - One temperature read of 41 C on wrist_roll was a single glitch (35 C before and after); all servos stayed at
   32-36 C.
+
+### With a 100 g payload
+
+Same 16 poses with a 99.7 g box (9 x 6.5 x 1.8 cm) taped flat to the outside of the fixed jaw, its end flush
+with the jaw tip; its centre of mass enters the torque model as a point mass at (-3.4, 0, -5.9) cm in the
+gripper frame. The payload widens the torque range by about half (lift down to -1.06 N m, elbow -0.70, wrist
+-0.24). Table: [results/s1/statics_20261106_214336_100g.md](results/s1/statics_20261106_214336_100g.md).
+
+The test that matters: the model fitted **without** the payload, applied to the payload run with the new
+torques.
+
+| Joint | RMS error | no-payload model | its mean residual | refit on both runs | c, both runs (deg/N m) |
+|---|---:|---:|---:|---:|---:|
+| shoulder_pan | 0.17 | 0.08 | +0.01 | 0.07 | - |
+| shoulder_lift | 0.84 | 0.14 | +0.04 | 0.11 | 1.62 |
+| elbow_flex | 0.91 | 0.21 | +0.14 | 0.11 | 1.79 |
+| wrist_flex | 0.34 | 0.08 | +0.04 | 0.06 | 1.81 |
+| wrist_roll | 0.16 | 0.06 | +0.01 | 0.06 | - |
+
+- **The model carries over to a load it was not fitted on**: 0.84-0.91 deg RMS on lift and elbow drop to
+  0.14-0.21 deg. So the error is the servo's response to torque, not something tied to those poses.
+- **The elbow compliance was overestimated** without the payload (2.14), where its torque spanned only
+  -0.45 to -0.15 N m; the payload run alone gives 1.98 and both runs together 1.79, leaving 0.11 deg RMS.
+  Fitted on both runs, the three gravity joints have similar compliances (1.6-1.8 deg/N m).
+- Pan and roll are unchanged (band 0.12-0.16 deg), as expected without gravity torque.
+- Temperatures 32-36 C; one 42 C read on wrist_roll was again a single glitch.
+- For S1c: use the fit on both runs.
 
 ## Hardware
 
