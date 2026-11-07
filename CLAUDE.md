@@ -5,8 +5,8 @@ The series plan (M0-M5) is in the so101-core README. M1 (so101-kinematics) is do
 and docs/DESIGN.md say what this repo starts from.
 
 ## Current state
-- 2026-11-06: repository set up. Session order agreed (S1 first). S1a tool written (`so101-servo`, dense reads
-  via so101-core b6f76e9); not yet run on the arm.
+- 2026-11-06: S1a done (README), at P = 16 and P = 32; P = 32 decided for the rest of M2. A joint behaves like a
+  spring: static offset ~ compliance x URDF gravity torque (~1.6 deg/N m at P = 32). S1b tool written.
 - **Next:** S1b: the user runs `so101-statics run` (P = 32, 16 poses), Claude runs `analyze`; then a payload run;
   then S1c (compensation on M1's circle). Open for S3: ZED SDK vs UVC; the
   ChArUco board (the user has no print; an iPad is the likely board for intrinsics and eye-in-hand, not for
