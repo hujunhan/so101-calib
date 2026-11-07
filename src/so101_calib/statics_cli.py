@@ -4,6 +4,8 @@
     so101-statics run [--payload-g G]       torque ON (P = SERVO_P): at each pose, approach from 3 deg above
                                             and below on every arm joint, settle, read;
                                             -> results/s1/statics_<time>.npz
+    so101-statics preview [--viewer]        no hardware: render the poses (results/s1/statics_poses.png); with
+                                            --viewer, play the whole route in a MuJoCo window at real speed
     so101-statics analyze FILE.npz          fit error = c * tau + b * side + o per joint -> FILE.md, FILE.png
 
 `--payload-g` only labels the run and adds that mass at the tool in the torque model: the payload itself must
@@ -153,6 +155,65 @@ def run(payload_g: float) -> None:
     print(f"\nDone. Analyze with: uv run so101-statics analyze {out}")
 
 
+# -- preview ------------------------------------------------------------------------------------------------
+def preview(viewer: bool) -> None:
+    import os
+
+    os.environ.setdefault("MUJOCO_GL", "egl")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import mujoco
+    from so101_core.twin import Twin
+
+    jm = JointMap.load()
+    safety = SafetyLayer()
+    rest = jm.rest if jm.rest is not None else np.zeros(len(JOINTS))
+    grav = st.Gravity()
+    poses, lines, _ = plan(safety, rest, grav)
+    twin = Twin()
+    renderer = mujoco.Renderer(twin.model, 360, 300)
+    cam = mujoco.MjvCamera()
+    cam.lookat[:] = [0.18, 0.0, 0.22]
+    cam.distance, cam.azimuth, cam.elevation = 1.05, 90.0, -8.0  # from the arm's left side: forward = right
+    tiles = [("rest", rest)] + [(f"{i}", p) for i, p in enumerate(poses)]
+    cols = 6
+    fig, axes = plt.subplots(-(-len(tiles) // cols), cols, figsize=(2.6 * cols, 3.0 * -(-len(tiles) // cols)))
+    for ax in axes.flat:
+        ax.axis("off")
+    for ax, (label, q) in zip(axes.flat, tiles, strict=False):
+        twin.set(q)
+        renderer.update_scene(twin.data, cam)
+        ax.imshow(renderer.render())
+        tool = grav.arm.fk(q[:5])[:3, 3] * 100
+        ax.set_title(
+            f"{label}: {np.round(np.degrees(q[1:4])).astype(int).tolist()} deg\n"
+            f"tool x {tool[0]:.0f}, z {tool[2]:.0f} cm",
+            fontsize=8,
+        )
+    fig.suptitle(
+        "S1b poses, seen from the arm's left (forward = right); joints shown: lift, elbow, wrist", fontsize=10
+    )
+    fig.tight_layout()
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / "statics_poses.png"
+    fig.savefig(out, dpi=100)
+    print("\n".join(lines))
+    print(f"Wrote {out}")
+    if viewer:
+        hz = safety.cfg.rate_hz
+        path = st.route(poses + [rest], rest, safety, MOVE_SPEED / hz)
+        twin.open_viewer()
+        rate_dt = 1 / hz
+        for q in path:
+            if not twin.show(q):
+                break
+            time.sleep(rate_dt)
+        input("Route done. Press Enter to close the viewer. ")
+        twin.close()
+
+
 # -- analysis ------------------------------------------------------------------------------------------------
 def analyze(path: Path) -> None:
     z = np.load(path)
@@ -229,6 +290,7 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("plan").add_argument("--payload-g", type=float, default=0.0)
     sub.add_parser("run").add_argument("--payload-g", type=float, default=0.0)
+    sub.add_parser("preview").add_argument("--viewer", action="store_true")
     sub.add_parser("analyze").add_argument("file", type=Path)
     args = p.parse_args()
     if args.cmd == "plan":
@@ -237,6 +299,8 @@ def main() -> None:
         _, lines, problems = plan(SafetyLayer(), rest, st.Gravity(args.payload_g / 1000))
         print("\n".join(lines))
         print("Preflight: " + ("ok" if not problems else "\n  " + "\n  ".join(problems[:10])))
+    elif args.cmd == "preview":
+        preview(args.viewer)
     elif args.cmd == "run":
         run(args.payload_g)
     else:
