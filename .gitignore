@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+*.rrd
+wandb/
+# raw camera captures may show people or the room; commit only reviewed, cropped images
+captures/

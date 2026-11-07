@@ -1,0 +1,42 @@
+# Working notes for Claude
+
+M2 of the SO-101 series. Plan, status and results: README.md. Decisions: DECISIONS.md.
+The series plan (M0-M5) is in the so101-core README. M1 (so101-kinematics) is done: its README ("Handed to M2")
+and docs/DESIGN.md say what this repo starts from.
+
+## Current state
+- 2026-11-06: repository set up (skeleton, pinned dependencies, smoke tests). Nothing calibrated yet.
+- **Next:** agree the session plan in README with the user (it is a draft), then the open decisions in
+  DECISIONS.md (ZED SDK vs UVC, the ChArUco board). S1 (servo identification) needs no camera and could start
+  first.
+
+## How we work
+- Claude writes and runs most of the code. The user does physical work on the arm, makes the key
+  decisions and learns the concepts. Present options with a recommendation and let the user decide
+  design choices, then record them in DECISIONS.md (date, decided, why, options).
+- The user must be able to defend every choice, so explain the why in plain terms, briefly.
+- Talk to the user in Chinese. Code, comments, commits and repo docs are in English.
+- Small steps; one session ≈ 1–2 hours of the user's time.
+- Check claims against a baseline before writing them down; report results that go against the plan as they are.
+
+## Rules
+- The repo is public. Never commit personal information or device serial numbers. Camera images can show
+  people and the room: keep raw captures in the git-ignored `captures/`, commit only reviewed, cropped images.
+- Real-arm motion only through so101-core's `SafeArm` (limit margin, step cap, stall detection; `move_to`,
+  `follow`), never raw bus writes. Tell the user before anything moves the arm; they must be present with power
+  in reach.
+- Dependencies are pinned git commits (so101-core, so101-kinematics). If a fix belongs there, make it there, push,
+  then bump the pin here.
+- Tooling: uv, Python 3.12, ruff, pytest. Run `uv run ruff check . && uv run pytest` before committing.
+- Commit and push when a step is done and verified. After a session milestone, update the status line in
+  README.md and the project row in the user's twin repo (`~/code/digital-twin/projects/README.md`).
+
+## Practical notes from M1
+- Device config: `SO101_CONFIG_DIR=~/code/mine/so101-core/config` (ports, rest pose, joint map).
+- Powered runs: the user runs the script in their own terminal (it asks for `yes`, and for Enter before
+  releasing torque; Claude's shell cannot answer prompts) and pastes the output; Claude analyzes the logs.
+  Torque-off reads (`SafeArm(...).connect(torque=False)`) Claude can run directly; they make the arm limp.
+- If the follower reports "Missing motor IDs", the servo power supply is off.
+- ZED 2 is `/dev/video6` as a UVC device: 2560x720 side by side, take the left half.
+- Rendering Mermaid diagrams: `npx -y @mermaid-js/mermaid-cli@11.4.2 -p <puppeteer.json>` with
+  `{"args":["--no-sandbox"]}`; Chromium's sandbox cannot start on this Ubuntu.

@@ -1,0 +1,44 @@
+[project]
+name = "so101-calib"
+version = "0.1.0"
+description = "SO-101 calibration: servo system identification, camera intrinsics, hand-eye calibration and an error budget"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Junhan Hu" }]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pin>=3.0",              # Pinocchio
+    "opencv-python>=4.8",    # ChArUco detection, calibration
+    "matplotlib>=3.8",
+    "pyyaml>=6.0",
+    "so101-core @ git+https://github.com/hujunhan/so101-core@f295ea29dc94bcdc005f8ea922f62362bcfab170",
+    "so101-kinematics @ git+https://github.com/hujunhan/so101-kinematics@4def7c8225c2a3325cf86211347edd50c475d5a2",
+]
+
+[project.optional-dependencies]
+hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@f295ea29dc94bcdc005f8ea922f62362bcfab170"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/so101_calib"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
