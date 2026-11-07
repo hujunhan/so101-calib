@@ -27,15 +27,42 @@ REPEATS = 2  # each pose: (+, -) approaches, this many times
 N_POSES = 16
 MIN_TOOL_Z = 0.08  # m above the base-frame origin (the base's bottom face)
 MIN_TOOL_X = 0.12  # m in front of the base
+# A payload box taped flat against the outside of the fixed jaw, long side along the gripper, its end flush
+# with the jaw tip. Frame: the gripper body (MuJoCo "gripper" = URDF wrist_roll child link; the gripper points
+# along -z, the fixed jaw's outer face is at x = -2.5 cm, the jaw tip at z = -10.4 cm; measured on the mesh).
+JAW_OUTER_X = -0.025
+JAW_TIP_Z = -0.104
+
+
+def payload_center(box_m: tuple[float, float, float]) -> np.ndarray:
+    """Centre (m, gripper frame) of a box of (length, width, thickness) mounted as above."""
+    length, _, thickness = box_m
+    return np.array([JAW_OUTER_X - thickness / 2, 0.0, JAW_TIP_Z + length / 2])
+
+
 GRAVITY_JOINTS = (1, 2, 3)  # shoulder_lift, elbow_flex, wrist_flex; pan and roll carry no gravity torque
 
 
 class Gravity:
-    """Joint torques (N m) that hold the arm still, from the URDF masses, plus a point payload at the tool."""
+    """Joint torques (N m) that hold the arm still, from the URDF masses, plus a payload of `payload_kg` whose
+    centre of mass is at `payload_pos` (m, gripper frame; default: the tool point)."""
 
-    def __init__(self, payload_kg: float = 0.0):
+    def __init__(self, payload_kg: float = 0.0, payload_pos: np.ndarray | None = None):
         self.arm = PinArm()
         self.payload_kg = payload_kg
+        m = self.arm.model
+        tool = m.frames[self.arm.fid]
+        # copy: addFrame below may move the frames, and the placement is a view into them
+        pos = (
+            tool.placement.translation.copy() if payload_pos is None else np.asarray(payload_pos, dtype=float)
+        )
+        self.payload_pos = pos
+        self.pid = m.addFrame(
+            pin.Frame(
+                "payload", tool.parentJoint, self.arm.fid, pin.SE3(np.eye(3), pos), pin.FrameType.OP_FRAME
+            )
+        )
+        self.arm.data = m.createData()
 
     def frames_z(self, q: np.ndarray) -> np.ndarray:
         """Heights (m) of every body frame (joint origins and the tool)."""
@@ -50,9 +77,13 @@ class Gravity:
         a = self.arm
         g = pin.computeGeneralizedGravity(a.model, a.data, a._full(q[:5]))[a.idx]
         if self.payload_kg:
-            # A point mass at the tool: the joints hold J^T times its weight (pointing down).
+            # A rigid payload: the joints hold J^T times its weight (pointing down) at its centre of mass.
+            full = a._full(q[:5])
+            pin.computeJointJacobians(a.model, a.data, full)
+            pin.framesForwardKinematics(a.model, a.data, full)
+            J = pin.getFrameJacobian(a.model, a.data, self.pid, pin.LOCAL_WORLD_ALIGNED)[:3, a.idx]
             weight = np.array([0.0, 0.0, -self.payload_kg * 9.81])
-            g = g - a.jacobian(q[:5])[:3].T @ weight
+            g = g - J.T @ weight
         return g
 
 
@@ -119,19 +150,33 @@ class Collisions:
     so101-core's MuJoCo model. The folded rest pose itself overlaps in the model (the meshes are coarse and
     the real arm rests on the table), so routes are checked once they have left the rest pose."""
 
-    def __init__(self, clearance_m: float = 0.005):
-        from so101_core.twin import Twin
+    def __init__(self, clearance_m: float = 0.005, payload_box_m: tuple[float, float, float] | None = None):
+        import mujoco
+        from so101_core.model import JOINTS, SCENE_PATH
 
-        self.twin = Twin()
+        spec = mujoco.MjSpec.from_file(str(SCENE_PATH))
+        if payload_box_m is not None:
+            length, width, thickness = payload_box_m
+            geom = spec.body("gripper").add_geom()
+            geom.name = "payload"
+            geom.type = mujoco.mjtGeom.mjGEOM_BOX
+            geom.size = [thickness / 2, width / 2, length / 2]
+            geom.pos = payload_center(payload_box_m)
+            geom.contype, geom.conaffinity = 1, 1
+        self.model = spec.compile()
+        self.data = mujoco.MjData(self.model)
+        self.qadr = np.array([self.model.joint(j).qposadr[0] for j in JOINTS])
         self.clearance = clearance_m
+        self._mujoco = mujoco
 
     def hits(self, q: np.ndarray) -> list[tuple[str, str]]:
-        m, d = self.twin.model, self.twin.data
-        self.twin.set(q)
+        m, d = self.model, self.data
+        d.qpos[self.qadr] = q
+        self._mujoco.mj_forward(m, d)
         out = []
         for c in d.contact[: d.ncon]:
             if c.dist < self.clearance:
-                out.append((m.body(m.geom_bodyid[c.geom1]).name, m.body(m.geom_bodyid[c.geom2]).name))
+                out.append(tuple(m.geom(g).name or m.body(m.geom_bodyid[g]).name for g in (c.geom1, c.geom2)))
         return out
 
 

@@ -1,15 +1,19 @@
 """so101-statics: S1b, the servos' static error over the workspace. Motion only through so101-core's SafeArm.
 
     so101-statics plan                      no hardware: the poses, the route, the collision and height checks
-    so101-statics run [--payload-g G]       torque ON (P = SERVO_P): at each pose, approach from 3 deg above
+    so101-statics run [--payload-g G --payload-box L W T]
+                                            torque ON (P = SERVO_P): at each pose, approach from 3 deg above
                                             and below on every arm joint, settle, read;
                                             -> results/s1/statics_<time>.npz
     so101-statics preview [--viewer]        no hardware: render the poses (results/s1/statics_poses.png); with
                                             --viewer, play the whole route in a MuJoCo window at real speed
     so101-statics analyze FILE.npz          fit error = c * tau + b * side + o per joint -> FILE.md, FILE.png
 
-`--payload-g` only labels the run and adds that mass at the tool in the torque model: the payload itself must
-already be fixed to the gripper. `run` asks for `yes` before the arm is powered and again before it moves.
+`--payload-g` only labels the run and adds that mass to the torque model: the payload itself must already
+be fixed to the gripper. With `--payload-box L W T` (cm) the payload is a box taped flat against the outside
+of the fixed jaw, long side along the gripper, end flush with the jaw tip: its centre is the centre of mass in
+the model and the box joins the collision check. Without it the mass sits at the tool point.
+`run` asks for `yes` before the arm is powered and again before it moves.
 """
 
 import argparse
@@ -35,29 +39,43 @@ def ask_yes(message: str) -> bool:
     return input(f"\n>>> {message} Type 'yes' to continue: ").strip().lower() == "yes"
 
 
+def outbound(rest: np.ndarray, first: np.ndarray, safety: SafetyLayer) -> np.ndarray:
+    """The commands `move_to(first)` sends from the rest pose; reversed, the way back."""
+    return st.ramp_path(safety.clip(rest)[0], first, MOVE_SPEED / safety.cfg.rate_hz)
+
+
 def plan(
-    safety: SafetyLayer, rest: np.ndarray, grav: st.Gravity
+    safety: SafetyLayer, rest: np.ndarray, grav: st.Gravity, box_m: tuple[float, float, float] | None = None
 ) -> tuple[list[np.ndarray], list[str], list[str]]:
     """Poses (6,), a description, and problems (empty if the plan is safe to run)."""
-    cands = st.candidate_poses(safety, grav)
+    cands = st.candidate_poses(safety, st.Gravity())  # the same poses with and without a payload
     chosen = st.spread_poses(cands, np.radians([0, -34, 34, 34, 0]), st.N_POSES)
     grip = safety.clip(rest)[0][5]
     poses = [np.append(c.q, grip) for c in chosen]
-    path = st.route(poses + [rest], rest, safety, MOVE_SPEED / safety.cfg.rate_hz)
-    coll = st.Collisions()
-    problems = st.route_problems(path, coll, rest)
+    step = MOVE_SPEED / safety.cfg.rate_hz
+    # Out: rest -> first pose (move_to). Back: the same path reversed (follow), so the arm folds the way it
+    # unfolded; a plain move_to back finishes the short joints first and passes poses the model cannot clear
+    # (it overlaps near rest). A payload goes on and comes off at the first pose: it would hit the shoulder
+    # when the arm folds.
+    out = outbound(rest, poses[0], safety)
+    path = np.vstack([out, st.route(poses[1:] + [poses[0]], poses[0], safety, step)])
+    coll = st.Collisions(payload_box_m=box_m)
+    problems = st.route_problems(out, st.Collisions(), rest)
+    problems += st.route_problems(path[len(out) :], coll, rest)
     approaches = [a for p in poses for _, a in st.approach_targets(p, safety)]
     for a in approaches:
         if coll.hits(a):
             problems.append(f"approach start in contact: {np.round(np.degrees(a[:5])).tolist()}")
-    travel_s = len(path) / safety.cfg.rate_hz
+    travel_s = (len(path) + len(out)) / safety.cfg.rate_hz
     per_approach = 2 * np.radians(st.APPROACH_DEG) / st.APPROACH_SPEED + 0.5 + st.HOLD_S
     total = travel_s + len(approaches) * per_approach
     tools = np.array([grav.arm.fk(p[:5])[:3, 3] for p in poses]) * 100
     lines = [
         f"{len(poses)} poses (pan = roll = 0) chosen from {len(cands)} candidates "
         "to spread the gravity torques; "
-        f"position gain P = {SERVO_P}; payload {grav.payload_kg * 1000:.0f} g",
+        f"position gain P = {SERVO_P}; payload {grav.payload_kg * 1000:.0f} g"
+        + ("" if box_m is None else f", box {np.round(np.array(box_m) * 100, 1).tolist()} cm")
+        + f" at {np.round(grav.payload_pos * 100, 1).tolist()} cm (gripper frame)",
         f"Tool positions: x {tools[:, 0].min():.0f} to {tools[:, 0].max():.0f} cm forward, "
         f"z {tools[:, 2].min():.0f} to {tools[:, 2].max():.0f} cm up",
         f"At each pose: {2 * st.REPEATS} approaches from +-{st.APPROACH_DEG:.0f} deg on every arm joint at "
@@ -75,14 +93,15 @@ def plan(
     return poses, lines, problems
 
 
-def run(payload_g: float) -> None:
+def run(payload_g: float, box_cm: list[float] | None) -> None:
     devices = DeviceConfig.load()
     jm = JointMap.load()
     if jm.rest is None:
         raise SystemExit("No rest pose in the joint map; record one with so101-core first.")
     arm = SafeArm(devices, joint_map=jm, position_p=SERVO_P)
-    grav = st.Gravity(payload_g / 1000)
-    poses, lines, problems = plan(arm.safety, jm.rest, grav)
+    box_m = None if box_cm is None else tuple(np.array(box_cm) / 100)
+    grav = st.Gravity(payload_g / 1000, None if box_m is None else st.payload_center(box_m))
+    poses, lines, problems = plan(arm.safety, jm.rest, grav, box_m)
     print("\n".join(lines))
     if problems:
         raise SystemExit("Preflight failed:\n  " + "\n  ".join(problems[:10]))
@@ -99,6 +118,8 @@ def run(payload_g: float) -> None:
         "date": datetime.now().isoformat(timespec="seconds"),
         "position_p": SERVO_P,
         "payload_g": payload_g,
+        "payload_box_cm": box_cm,
+        "payload_pos_m": grav.payload_pos.tolist(),
         "approach_deg": st.APPROACH_DEG,
         "hold_s": st.HOLD_S,
     }
@@ -113,6 +134,15 @@ def run(payload_g: float) -> None:
         print(f"Servo settings: {meta['regs']}")
         if not ask_yes("The arm will MOVE through the poses."):
             return
+        if box_m is not None:
+            arm.move_to(poses[0], speed_rad_s=MOVE_SPEED)
+            print(
+                "The arm holds the first pose. Tape the payload flat against the OUTSIDE of the fixed jaw, "
+                "long "
+                "side along the gripper, end flush with the jaw tip. Press gently; the servos hold."
+            )
+            if not ask_yes("Payload attached and tight?"):
+                return
         for i, pose in enumerate(poses):
             print(
                 f"pose {i + 1}/{len(poses)}: {np.round(np.degrees(pose[:5])).astype(int).tolist()} deg",
@@ -150,8 +180,11 @@ def run(payload_g: float) -> None:
                 + f"; max temp {max(rec['temp'][-1])} C"
             )
             np.savez_compressed(out, meta=json.dumps(meta), **{k: np.array(v) for k, v in rec.items()})
-        print(f"Saved {out}. Moving back towards the rest pose.")
-        arm.move_to(jm.rest, speed_rad_s=MOVE_SPEED)
+        arm.move_to(poses[0], speed_rad_s=MOVE_SPEED)
+        if box_m is not None:
+            input("\n>>> The arm holds the first pose. Remove the payload, then press Enter. ")
+        print(f"Saved {out}. Moving back to the rest pose the way it came.")
+        arm.follow(outbound(jm.rest, poses[0], arm.safety)[::-1])
     print(f"\nDone. Analyze with: uv run so101-statics analyze {out}")
 
 
@@ -203,7 +236,10 @@ def preview(viewer: bool) -> None:
     print(f"Wrote {out}")
     if viewer:
         hz = safety.cfg.rate_hz
-        path = st.route(poses + [rest], rest, safety, MOVE_SPEED / hz)
+        out = outbound(rest, poses[0], safety)
+        path = np.vstack(
+            [out, st.route(poses[1:] + [poses[0]], poses[0], safety, MOVE_SPEED / hz), out[::-1]]
+        )
         twin.open_viewer()
         rate_dt = 1 / hz
         for q in path:
@@ -218,7 +254,7 @@ def preview(viewer: bool) -> None:
 def analyze(path: Path) -> None:
     z = np.load(path)
     meta = json.loads(str(z["meta"]))
-    grav = st.Gravity(meta["payload_g"] / 1000)
+    grav = st.Gravity(meta["payload_g"] / 1000, meta.get("payload_pos_m"))
     q_cmd, q_meas, side = z["q_cmd"], z["q_meas"], z["side"].astype(float)
     err = np.degrees(q_cmd - q_meas)[:, :5]
     tau = np.array([grav.tau(q) for q in q_cmd])
@@ -291,21 +327,25 @@ def _plot(err, tau, side, fits, out: Path) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("plan").add_argument("--payload-g", type=float, default=0.0)
-    sub.add_parser("run").add_argument("--payload-g", type=float, default=0.0)
+    for name in ("plan", "run"):
+        sp = sub.add_parser(name)
+        sp.add_argument("--payload-g", type=float, default=0.0)
+        sp.add_argument("--payload-box", type=float, nargs=3, metavar=("L", "W", "T"), help="cm")
     sub.add_parser("preview").add_argument("--viewer", action="store_true")
     sub.add_parser("analyze").add_argument("file", type=Path)
     args = p.parse_args()
     if args.cmd == "plan":
         jm = JointMap.load()
         rest = jm.rest if jm.rest is not None else np.zeros(len(JOINTS))
-        _, lines, problems = plan(SafetyLayer(), rest, st.Gravity(args.payload_g / 1000))
+        box_m = None if args.payload_box is None else tuple(np.array(args.payload_box) / 100)
+        grav = st.Gravity(args.payload_g / 1000, None if box_m is None else st.payload_center(box_m))
+        _, lines, problems = plan(SafetyLayer(), rest, grav, box_m)
         print("\n".join(lines))
         print("Preflight: " + ("ok" if not problems else "\n  " + "\n  ".join(problems[:10])))
     elif args.cmd == "preview":
         preview(args.viewer)
     elif args.cmd == "run":
-        run(args.payload_g)
+        run(args.payload_g, args.payload_box)
     else:
         analyze(args.file)
 

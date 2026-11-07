@@ -19,6 +19,29 @@ def test_payload_torque_matches_a_mass_added_to_the_model():
     assert np.allclose(with_payload, ref, atol=1e-9)
 
 
+def test_payload_at_an_offset_matches_the_height_of_that_point():
+    box = (0.092, 0.065, 0.022)
+    pos = st.payload_center(box)
+    q = np.radians([0, -30, 40, 20, 30])
+    arm = st.Gravity().arm
+    tool_in_joint = arm.model.frames[arm.fid].placement.homogeneous
+
+    def z(qq):  # height of the payload centre, given in the frame of the joint the tool hangs on
+        joint = arm.fk(qq) @ np.linalg.inv(tool_in_joint)
+        return (joint[:3, :3] @ pos + joint[:3, 3])[2]
+
+    eps = 1e-6
+    dz = np.array([(z(q + eps * np.eye(5)[k]) - z(q - eps * np.eye(5)[k])) / (2 * eps) for k in range(5)])
+    # tau_k = m g dz/dq_k: the torque that holds a weight is its height's gradient times the weight
+    assert np.allclose(st.Gravity(0.1, pos).tau(q) - st.Gravity().tau(q), 0.1 * 9.81 * dz, atol=1e-6)
+
+
+def test_payload_box_joins_the_collision_check():
+    folded = np.radians([0, -80, 80, -45, 0, 0])  # S1b pose 13: gripper close to the upper arm
+    assert not st.Collisions().hits(folded)
+    assert st.Collisions(payload_box_m=(0.30, 0.20, 0.10)).hits(folded)  # a far too large box hits something
+
+
 def test_gravity_has_no_torque_on_pan_and_roll_at_pan_roll_zero():
     tau = st.Gravity().tau(np.radians([0, -34, 34, 34, 0]))
     assert abs(tau[0]) < 1e-4 and abs(tau[4]) < 1e-4 and tau[2] < -0.3  # the elbow holds the forearm
@@ -56,3 +79,9 @@ def test_fit_recovers_compliance_band_and_offset():
     assert f["o"] == pytest.approx(0.05, abs=0.02) and f["rms_resid_deg"] < 0.03
     f0 = st.fit_joint(0.1 * side, side, None)
     assert f0["c"] is None and f0["b"] == pytest.approx(0.1)
+
+
+def test_default_payload_sits_at_the_tool_point():
+    g = st.Gravity(0.1)
+    assert np.allclose(g.payload_pos, g.arm.model.frames[g.arm.fid].placement.translation)
+    assert np.linalg.norm(g.payload_pos) > 0.05  # ~10 cm from the wrist_roll joint, not at its origin
