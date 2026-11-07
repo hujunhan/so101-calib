@@ -189,16 +189,25 @@ def analyze(path: Path) -> None:
                 f"{m['error_deg']:+.2f} | {_fmt(m['t_first_ms'], 0)} | {_fmt(m['t10_ms'], 0)} | "
                 f"{_fmt(m['t50_ms'], 0)} | {_fmt(m['t90_ms'], 0)} |"
             )
+        peaks = [
+            sid.sine_peak_errors(t_sent, q_cmd, t_dense, q_dense, s, j) for s in segs if s.kind == "sine"
+        ]
+        for m, (top, bottom) in zip(sines, peaks, strict=True):
+            m["top"], m["bottom"] = top, bottom
         for m in sines:
             rows_sine.append(
                 f"| {name} | {m['freq_hz']:.2f} | {m['gain']:.2f} | "
-                f"{m['phase_deg']:.0f} | {m['delay_ms']:.0f} |"
+                f"{m['phase_deg']:.0f} | {m['delay_ms']:.0f} | {m['top']:+.2f} | {m['bottom']:+.2f} |"
             )
         big = [m for m in steps if abs(m["step_deg"]) >= 1.0 and m["t50_ms"] is not None]
         coup = sid.coupling_deg(q_cmd, q_dense, t_dense, t_sent, j)
         worst = max(coup, key=coup.get)
+        firsts = [m["t_first_ms"] for m in steps if m["t_first_ms"] is not None]
+        top, bottom = np.mean(peaks, axis=0)
         rows_summary.append(
-            f"| {name} | {_fmt(np.median([m['t50_ms'] for m in big]) if big else None, 0)} | "
+            f"| {name} | {np.median(firsts):.0f} | "
+            f"{_fmt(np.median([m['t50_ms'] for m in big]) if big else None, 0)} | "
+            f"{top:+.2f} | {bottom:+.2f} | {(top + bottom) / 2:+.2f} | {(top - bottom) / 2:.2f} | "
             f"{np.median([m['delay_ms'] for m in sines]):.0f} | "
             f"{np.mean([m['error_deg'] for m in steps]):+.2f} | "
             f"{np.mean([abs(m['shortfall_deg']) for m in steps]):.2f} | {worst} {coup[worst]:.2f} |"
@@ -217,10 +226,14 @@ def analyze(path: Path) -> None:
         "",
         "## Summary per joint",
         "",
-        "| Joint | Step t50 (ms, steps >= 1 deg) | Sine delay (ms, median) | "
-        "Mean error after settling (deg) | "
-        "Mean shortfall (deg) | Other joint moved most (deg p-p) |",
-        "|---|---:|---:|---:|---:|---|",
+        "t_first: from the step command to the first change of 1.5 encoder counts. Center = mean of the "
+        "errors at the two turning points (the static offset, e.g. gravity sag); half-width = half their "
+        "difference (the band the servo can rest anywhere in: deadband and friction).",
+        "",
+        "| Joint | Step t_first (ms, median) | Step t50 (ms, steps >= 1 deg) | Error at sine top (deg) | "
+        "Error at sine bottom | Center | Half-width | Sine delay (ms, median) | "
+        "Mean error after settling (deg) | Mean shortfall (deg) | Other joint moved most (deg p-p) |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
         *rows_summary,
         "",
         "## Steps",
@@ -235,10 +248,12 @@ def analyze(path: Path) -> None:
         "",
         "## Sines",
         "",
-        f"Amplitude {sid.SINE_AMP_DEG} deg; first cycle skipped. Delay = phase lag / (2 pi f).",
+        f"Amplitude {sid.SINE_AMP_DEG} deg; first cycle skipped. Delay = phase lag / (2 pi f). "
+        "Error at top / "
+        "bottom = commanded - measured at the turning points.",
         "",
-        "| Joint | f (Hz) | Gain | Phase lag (deg) | Delay (ms) |",
-        "|---|---:|---:|---:|---:|",
+        "| Joint | f (Hz) | Gain | Phase lag (deg) | Delay (ms) | Error at top (deg) | Error at bottom |",
+        "|---|---:|---:|---:|---:|---:|---:|",
         *rows_sine,
         "",
     ]

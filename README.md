@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** repository set up; session order agreed (S1 first). Nothing calibrated yet.
+> **Status (2026-11-06):** S1a done (servo timing and static error at one pose, all five arm joints). Next: S1b.
 
 ## What M1 hands over
 
@@ -36,6 +36,38 @@ From [so101-kinematics](https://github.com/hujunhan/so101-kinematics) (README, "
 | **S4** | Hand-eye: eye-in-hand (wrist) and eye-to-hand (ZED 2) | `T_<to>_<from>` in YAML |
 | **S5** | Error budget and demo: click in the ZED image, the tip goes there; heat map over the workspace | Demo, heat map |
 | **S6** | Write-up: README, `docs/DESIGN.md` | |
+
+## S1a result: servo timing and static error (one pose)
+
+`so101-servo run` holds the arm at a test pose (`[0, -34, 34, 34, 0]` deg, tool ~29 cm out, ~13 cm up) and
+moves one joint at a time: steps of 0.5-1.5 deg, then 4 deg sines at 0.2-1.0 Hz. Commands go out at 30 Hz;
+`SafeArm.follow(dense=True)` reads the arm every 1.0 ms in between (median). Full tables and plots:
+[results/s1/servo_20261106_184915.md](results/s1/servo_20261106_184915.md).
+
+| Joint | First motion after a step (ms) | Error at sine top / bottom (deg) | Center (static offset) | Half-width (band) |
+|---|---:|---:|---:|---:|
+| shoulder_pan | 56 | +0.37 / -0.43 | -0.03 | 0.40 |
+| shoulder_lift | 48 | -0.07 / -1.66 | -0.87 | 0.80 |
+| elbow_flex | 55 | -0.07 / -3.01 | -1.54 | 1.47 |
+| wrist_flex | 53 | +0.17 / -0.83 | -0.33 | 0.50 |
+| wrist_roll | 52 | +0.46 / -0.37 | +0.04 | 0.41 |
+
+Error = commanded - measured at the turning points of the sine. They do not change with frequency
+(0.2-1.0 Hz), so they are static, not a delay.
+
+- **The servo first moves 50-55 ms after a command** on every joint, and is halfway at about 70 ms.
+  M1's "100 ms delay" was this plus half a tick from the staircase command (17 ms) plus the deadband below.
+- **Every joint has a band of about +-0.4 deg** where it stops and stays (pan and roll, which carry no gravity
+  load, show it alone). 0.5 deg steps often do not move the joint at all.
+- **Under gravity the band is offset and wider.** Moving with gravity, lift, elbow and wrist reach the command;
+  moving against it they stop short: the elbow by 3.0 deg, the lift by 1.7 deg. M1's single "0.9 deg sag"
+  number averaged over this. At M1's drawing start pose the elbow error was -1.7 to -1.9 deg, the same sign and
+  size as here.
+- **The deadband makes a speed-dependent lag.** The command must get ~0.4 deg ahead before the servo moves:
+  90 ms at 5 deg/s, 18 ms at 25 deg/s. This is why the sine "delay" grows at low frequency (wrist_roll: 157 ms
+  at 0.2 Hz, 111 ms at 1 Hz), and on the elbow the sine fit is no longer a delay at all.
+- The servos run with LeRobot's position gain P = 16 (factory 32). A proportional servo needs an error to make
+  torque, so both the band and the offset should shrink with a higher P. Not tested yet.
 
 ## Hardware
 

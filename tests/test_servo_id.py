@@ -50,6 +50,8 @@ def test_analysis_recovers_delay_and_sag():
             m = sid.sine_metrics(t_sent, q_cmd, t_dense, q_dense, s, 2)
             assert m["gain"] == pytest.approx(1, abs=0.02)
             assert m["delay_ms"] == pytest.approx(80 + 1000 / HZ / 2, abs=3)  # + half a tick (staircase)
+            top, bottom = sid.sine_peak_errors(t_sent, q_cmd, t_dense, q_dense, s, 2)
+            assert top == pytest.approx(0.9, abs=0.02) and bottom == pytest.approx(0.9, abs=0.02)
 
 
 def test_expected_following_error_is_delay_times_speed_plus_sag():

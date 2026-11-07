@@ -147,6 +147,19 @@ def sine_metrics(t_sent, q_cmd, t_dense, q_dense, seg: Segment, joint: int) -> d
     }
 
 
+def sine_peak_errors(t_sent, q_cmd, t_dense, q_dense, seg: Segment, joint: int) -> tuple[float, float]:
+    """Commanded minus measured at the top and at the bottom of the sine (deg); the first cycle is skipped.
+
+    The servo stops short of each turning point by its static error there; these do not depend on the
+    frequency, unlike a delay. On a joint under gravity the two ends differ: moving with gravity the servo
+    reaches the command, moving against it the servo stops short.
+    """
+    t_start, t_stop = t_sent[seg.start] + 1 / seg.value, t_sent[seg.end - 1]
+    c = np.degrees(q_cmd[(t_sent >= t_start) & (t_sent <= t_stop), joint])
+    m = np.degrees(q_dense[(t_dense >= t_start) & (t_dense <= t_stop + 0.3), joint])
+    return float(c.max() - m.max()), float(c.min() - m.min())
+
+
 def coupling_deg(q_cmd, q_dense, t_dense, t_sent, joint: int) -> dict:
     """How far the other joints moved (peak to peak, deg) while this one was tested."""
     m = t_dense >= t_sent[0] + SETTLE_S / 2
