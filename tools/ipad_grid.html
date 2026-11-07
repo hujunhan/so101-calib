@@ -1,0 +1,155 @@
+<title>SO-101 Touch Grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  /* One deliberate look: a measuring sheet, black ink on white glass, in both themes (high contrast for
+     aiming a pointer). The canvas fills the screen; a small bar holds the scale controls. */
+  :root {
+    --paper: #ffffff;
+    --ink: #111418;
+    --ink-soft: #5b6470;
+    --mark: #c2410c;
+    --bar: #eef1f4;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    color-scheme: light;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.4 var(--mono);
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .bar {
+    position: fixed;
+    top: env(safe-area-inset-top, 0px);
+    left: env(safe-area-inset-left, 0px);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 6px 10px;
+    background: var(--bar);
+    border-bottom-right-radius: 6px;
+    color: var(--ink-soft);
+    max-width: calc(100% - 20px);
+  }
+  .bar label { display: flex; align-items: center; gap: 6px; }
+  .bar input {
+    width: 4.5em;
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--ink-soft);
+    border-radius: 3px;
+    padding: 2px 4px;
+  }
+  .bar button {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--ink-soft);
+    border-radius: 3px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .bar button:focus-visible, .bar input:focus-visible { outline: 2px solid var(--mark); outline-offset: 1px; }
+  .warn { color: var(--mark); font-weight: 600; }
+</style>
+
+<canvas id="grid" aria-label="Dot grid, 50 mm pitch, for touch calibration"></canvas>
+<div class="bar">
+  <label for="ppi">ppi <input id="ppi" type="number" step="0.1" min="100" max="600" value="264"></label>
+  <span id="info"></span>
+  <button id="fs" type="button">Full screen</button>
+  <span id="warn" class="warn" hidden></span>
+</div>
+
+<script>
+  // Must match so101_calib/touch.py: columns A-D along the long side, rows 1-3, 50 mm apart, row 1 nearest
+  // the arm (drawn at the bottom). Grid frame: x = A -> D (right), y = row 1 -> 3 (up), origin at the centre.
+  const PITCH_MM = 50;
+  const COLS = "ABCD";
+  const ROWS = [1, 2, 3];
+
+  const canvas = document.getElementById("grid");
+  const ppiInput = document.getElementById("ppi");
+  const info = document.getElementById("info");
+  const warn = document.getElementById("warn");
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ppi = parseFloat(ppiInput.value) || 264;
+    const mm = ppi / 25.4; // device pixels per millimetre
+    const ctx = canvas.getContext("2d");
+    const ink = css("--ink"), soft = css("--ink-soft"), mark = css("--mark");
+    ctx.fillStyle = css("--paper");
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    const at = (i, j) => [cx + (i - 1.5) * PITCH_MM * mm, cy - (j - 1) * PITCH_MM * mm];
+
+    ctx.font = `${Math.round(3.2 * mm)}px ${css("--mono")}`;
+    ctx.textBaseline = "middle";
+    COLS.split("").forEach((c, i) => {
+      ROWS.forEach((r, j) => {
+        const [x, y] = at(i, j);
+        // crosshair 2 x 6 mm, ring 3 mm radius, centre dot 0.8 mm
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = Math.max(1, 0.15 * mm);
+        ctx.beginPath();
+        ctx.moveTo(x - 6 * mm, y); ctx.lineTo(x - 1.2 * mm, y);
+        ctx.moveTo(x + 1.2 * mm, y); ctx.lineTo(x + 6 * mm, y);
+        ctx.moveTo(x, y - 6 * mm); ctx.lineTo(x, y - 1.2 * mm);
+        ctx.moveTo(x, y + 1.2 * mm); ctx.lineTo(x, y + 6 * mm);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, 3 * mm, 0, 2 * Math.PI); ctx.stroke();
+        ctx.fillStyle = ink;
+        ctx.beginPath(); ctx.arc(x, y, 0.4 * mm, 0, 2 * Math.PI); ctx.fill();
+        ctx.fillText(`${c}${r}`, x + 4 * mm, y - 4.5 * mm);
+      });
+    });
+
+    // row 1 edge marker and the ruler check (A1 to C1 is 100 mm)
+    const [x1, y1] = at(0, 0), [x3] = at(2, 0), [xd] = at(3, 0);
+    ctx.fillStyle = mark;
+    ctx.textAlign = "center";
+    ctx.fillText("ROW 1  ·  this edge toward the arm", (x1 + xd) / 2, y1 + 12 * mm);
+    ctx.strokeStyle = mark;
+    ctx.lineWidth = Math.max(1, 0.15 * mm);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1 + 7.5 * mm); ctx.lineTo(x3, y1 + 7.5 * mm);
+    ctx.moveTo(x1, y1 + 6.5 * mm); ctx.lineTo(x1, y1 + 8.5 * mm);
+    ctx.moveTo(x3, y1 + 6.5 * mm); ctx.lineTo(x3, y1 + 8.5 * mm);
+    ctx.stroke();
+    ctx.fillStyle = soft;
+    ctx.fillText("A1 to C1 = 100.0 mm", (x1 + x3) / 2, y1 + 5.5 * mm);
+    ctx.textAlign = "start";
+
+    info.textContent = `${mm.toFixed(3)} px/mm · pixel ratio ${dpr}`;
+    const needW = (3 * PITCH_MM + 20) * mm, needH = (2 * PITCH_MM + 34) * mm;
+    const problems = [];
+    if (canvas.width < needW || canvas.height < needH) problems.push("grid does not fit: go full screen or zoom out to 100%");
+    if (window.visualViewport && Math.abs(window.visualViewport.scale - 1) > 0.01) problems.push("page is zoomed: reset to 100%");
+    warn.textContent = problems.join(" · ");
+    warn.hidden = problems.length === 0;
+  }
+
+  document.getElementById("fs").addEventListener("click", () => {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(el)).catch(() => {});
+  });
+  ppiInput.addEventListener("input", draw);
+  window.addEventListener("resize", draw);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", draw);
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(draw);
+  draw();
+</script>

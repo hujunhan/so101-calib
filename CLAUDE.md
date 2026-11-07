@@ -11,7 +11,9 @@ and docs/DESIGN.md say what this repo starts from.
   (c = 1.62 / 1.79 / 1.81 deg/N m for lift / elbow / wrist).
 - S1c done: feed-forward (spring + band + 80 ms lead) cuts tracking error on M1's circle to 0.6-0.7 mm median
   (from 2.0 / 3.8 mm at 2 / 5 cm/s); lead could be 65-70 ms. `so101-track plan` has a virtual-servo preview.
-- **Next:** S2: kinematic calibration (joint zero offsets; M1's 10 cm ruler read 8.66 cm by FK). Open for S3: ZED SDK vs UVC; the
+- **Next:** S2: `so101-touch` written (iPad grid tools/ipad_grid.html at 264 ppi, iPad Pro M1; pointer taped to
+  the fixed jaw). The user runs `record fit` (iPad on the table) and `record check` (on a 10-15 cm box), Claude
+  runs `fit`; then write the offsets into so101-core's joint_map.yaml (shift rest_rad too). Open for S3: ZED SDK vs UVC; the
   ChArUco board (the user has no print; an iPad is the likely board for intrinsics and eye-in-hand, not for
   eye-to-hand, which needs a light marker on the gripper).
 
