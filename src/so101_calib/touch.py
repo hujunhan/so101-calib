@@ -47,14 +47,18 @@ class Touch:
 
 
 def touch_list(kind: str) -> list[Touch]:
-    """'fit': every dot straight, plus three dots with the gripper turned and the pointer shallow
-    (27 touches); 'check': every dot straight (12), for the held-out check."""
-    out = [Touch(d, STEEP, 0.0) for d in DOTS]
-    if kind == "fit":
-        for d in ("A1", "B3", "D2"):
-            out += [Touch(d, STEEP, -ROLL_TURN), Touch(d, STEEP, ROLL_TURN), Touch(d, SHALLOW, 0.0)]
-            out += [Touch(d, SHALLOW, -ROLL_TURN), Touch(d, SHALLOW, ROLL_TURN)]
-    return out
+    """'fit': three dots, each touched four ways (pointer steep and shallow, gripper turned to roll -60
+    and +60 deg), 12 touches; in simulation as precise as 27 touches with level grippers added, because the
+    turned and tilted touches are what separate the offsets from the pointer. 'check': six dots straight,
+    for the held-out check."""
+    if kind == "check":
+        return [Touch(d, STEEP, 0.0) for d in ("A1", "A3", "B2", "C2", "D1", "D3")]
+    return [
+        Touch(d, pitch, roll)
+        for d in ("A1", "B3", "D2")
+        for pitch in (STEEP, SHALLOW)
+        for roll in (-ROLL_TURN, ROLL_TURN)
+    ]
 
 
 class Pointer:

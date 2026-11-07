@@ -9,8 +9,8 @@
     so101-touch fit FIT.npz [CHECK.npz] fit offsets, pointer and placement on FIT; test them on CHECK (only
                                         its placement refitted) -> results/s2/<FIT>.md, offsets in .json
 
-`fit` set: the iPad flat on the table (27 touches). `check` set: the iPad flat on a box 10-15 cm high
-(12 touches), never used for fitting. The grid: tools/ipad_grid.html, full screen on the iPad.
+`fit` set: the iPad flat on the table (12 touches). `check` set: the iPad flat on a box 10-15 cm high
+(6 touches), never used for fitting. The grid: tools/ipad_grid.html, full screen on the iPad.
 """
 
 import argparse
