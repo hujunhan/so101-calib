@@ -66,8 +66,33 @@ Error = commanded - measured at the turning points of the sine. They do not chan
 - **The deadband makes a speed-dependent lag.** The command must get ~0.4 deg ahead before the servo moves:
   90 ms at 5 deg/s, 18 ms at 25 deg/s. This is why the sine "delay" grows at low frequency (wrist_roll: 157 ms
   at 0.2 Hz, 111 ms at 1 Hz), and on the elbow the sine fit is no longer a delay at all.
-- The servos run with LeRobot's position gain P = 16 (factory 32). A proportional servo needs an error to make
-  torque, so both the band and the offset should shrink with a higher P. Not tested yet.
+- The servos run with LeRobot's position gain P = 16 (factory 32; LeRobot lowered it "to avoid shakiness").
+
+### Same test at P = 32
+
+[results/s1/servo_20261106_185955_p32.md](results/s1/servo_20261106_185955_p32.md)
+
+| Joint | Center P16 -> P32 (deg) | Half-width P16 -> P32 | Error against gravity P16 -> P32 | First motion (ms) | Rest jitter P32 (deg p-p) |
+|---|---:|---:|---:|---:|---:|
+| shoulder_pan | -0.03 -> -0.03 | 0.40 -> 0.09 | - | 56 -> 49 | 0.00 |
+| shoulder_lift | -0.87 -> -0.41 | 0.80 -> 0.27 | -1.66 -> -0.68 | 48 -> 47 | 0.00 |
+| elbow_flex | -1.54 -> -0.81 | 1.47 -> 0.74 | -3.01 -> -1.55 | 55 -> 50 | 0.00 |
+| wrist_flex | -0.33 -> -0.15 | 0.50 -> 0.26 | -0.83 -> -0.41 | 53 -> 40 | 0.00 |
+| wrist_roll | +0.04 -> +0.03 | 0.41 -> 0.16 | - | 52 -> 45 | 0.09 (one count) |
+
+- **Doubling P halves the gravity error** (elbow 3.0 -> 1.55 deg, lift 1.7 -> 0.7 deg), as expected for a
+  proportional servo: the torque that holds the arm needs half the error.
+- **The rest band also shrinks, by 2-4x.** Before the run I expected it would not, after a report of a
+  built-in 10-count deadband on the STS3215 ([SO-ARM100 #134](https://github.com/TheRobotStudio/SO-ARM100/issues/134)).
+  On these servos (`CW_Dead_Zone` = `CCW_Dead_Zone` = 1 count) the band depends on the gain, so it is mostly
+  friction against P x error, not a fixed deadband.
+- **No oscillation at rest, no temperature rise** in the 4 min run (32-34 C before and after). Holding torque
+  against gravity is the same at any P (only the error needed to make it changes), so steady heating should
+  not change; oscillation would, and none showed.
+- **One sign of less damping:** shoulder_pan, which turns the whole arm, overshoots 1.5 deg steps by up to
+  ~0.35 deg and then drifts back. The other joints do not.
+- The sine "delay" drops from ~115 to ~78 ms at 1 Hz on pan and roll, because the band the command must cross
+  first is smaller.
 
 ## Hardware
 
