@@ -13,9 +13,9 @@ and docs/DESIGN.md say what this repo starts from.
   (from 2.0 / 3.8 mm at 2 / 5 cm/s); lead could be 65-70 ms. `so101-track plan` has a virtual-servo preview.
 - S2 tried and stopped (README, DECISIONS): uncalibrated about 8 mm RMS (up to ~15 mm) in the touched region;
   no offsets applied. `so101-touch` stays for a later try (rigid pointer, teleop).
-- **Next:** S3 (cameras). Open for S3: ZED SDK vs UVC; the
-  ChArUco board (the user has no print; an iPad is the likely board for intrinsics and eye-in-hand, not for
-  eye-to-hand, which needs a light marker on the gripper).
+- **Next:** S3: `so101-cam` written (ChArUco 8x5, 25 mm, on the iPad: tools/ipad_charuco.html; ZED over UVC,
+  factory file in captures/zed/). The user runs `capture wrist` and `capture zed`, Claude runs `calibrate`. Open for S4: eye-to-hand needs a
+  light marker on the gripper (the iPad is too big to carry).
 
 ## How we work
 - Claude writes and runs most of the code. The user does physical work on the arm, makes the key
