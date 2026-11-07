@@ -98,3 +98,15 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   arm, which absorbs part of the error.
 - **Options:** stop; continue with a rigid pointer (a printed tip screwed to the gripper, or the fixed jaw
   tip) and teleoperation; fit the offsets later from the camera in S4 with the arm moving itself.
+
+## 2026-11-06: S3 reads the ZED 2 as a UVC camera; factory calibration from Stereolabs
+
+- **Decided:** use the ZED 2 as a plain UVC camera (2560x720 side by side, left half = left eye), like
+  LeRobot's OpenCV cameras that M3 will record with. No ZED SDK. The factory calibration
+  (`SN<serial>.conf`, downloaded once from calib.stereolabs.com with the user's consent) is kept in the
+  git-ignored `captures/zed/` and compared with our own ChArUco calibration; the serial is never committed.
+- **Why:** M3 records through LeRobot's OpenCV cameras, so that is the path that has to be right. The SDK
+  (neural depth, tracking) is a closed multi-GB CUDA dependency; Ubuntu 24.04 + CUDA 13 builds exist, but one
+  report has the tools and Python API failing with a ZED 2i on that setup. S5's click-to-point needs no depth
+  map for objects on the table (a ray from the pixel to the table plane).
+- **Options:** UVC only; UVC plus trying the SDK for depth; the SDK as the main path.
