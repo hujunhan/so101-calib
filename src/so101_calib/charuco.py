@@ -15,7 +15,7 @@ SQUARES_X, SQUARES_Y = 8, 5
 SQUARE_M, MARKER_M = 0.025, 0.018
 DICTIONARY = cv2.aruco.DICT_4X4_50
 IPAD_PPI = 264.0
-MIN_CORNERS = 12  # a view with fewer detected corners is not used
+MIN_CORNERS = 8  # a view with fewer detected corners is not used (partial views at the image edge count)
 
 
 def board() -> cv2.aruco.CharucoBoard:
@@ -32,6 +32,9 @@ def board_image(ppi: float = IPAD_PPI, margin_px: int = 0) -> np.ndarray:
 
 def detector() -> cv2.aruco.CharucoDetector:
     params = cv2.aruco.CharucoParameters()
+    # Look again for the markers the first pass missed, where the board says they must be: on the wrist
+    # camera's first frames (iPad glare, the gripper in front) 10.7 -> 19.8 of 20 markers, 8.5 -> 27 corners.
+    params.tryRefineMarkers = True
     dparams = cv2.aruco.DetectorParameters()
     dparams.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
     return cv2.aruco.CharucoDetector(board(), params, dparams)
