@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** S1a and S1b done: servo timing, and a static error model over the workspace at P = 32, checked with a 100 g payload. Next: S1c (compensation).
+> **Status (2026-11-06):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). Next: S2 (kinematic calibration).
 
 ## What M1 hands over
 
@@ -154,6 +154,39 @@ torques.
 - Pan and roll are unchanged (band 0.12-0.16 deg), as expected without gravity torque.
 - Temperatures 32-36 C; one 42 C read on wrist_roll was again a single glitch.
 - For S1c: use the fit on both runs.
+
+## S1c result: feed-forward compensation on M1's circle (P = 32)
+
+`so101-track run` draws M1's circle (radius 3.6 cm, plane 20 cm in front of the base, in the air) with four
+command variants, each adding one part of the S1 model, at 2 and 5 cm/s, interleaved, twice (16 circles, all
+complete). The model is fitted on both S1b runs ([results/s1/servo_model.json](results/s1/servo_model.json)).
+The arm is read about every 1 ms and compared with the target at the time of each read (M1 read once per tick,
+right after the command, which added a tick of apparent lag). Tool positions are FK of the measured and the
+target joints: how well the servos follow, not absolute accuracy (S2). Full table and plot:
+[results/s1/track_20261106_215728.md](results/s1/track_20261106_215728.md).
+
+| Variant | Command | 2 cm/s median / max (mm) | 5 cm/s median / max (mm) | Predicted median (virtual servo) |
+|---|---|---:|---:|---:|
+| none | target (M1) | 2.0 / 5.4 | 3.8 / 6.8 | 2.3 / 4.6 |
+| spring | + c tau + o | 2.0 / 4.1 | 4.2 / 5.5 | 2.4 / 4.8 |
+| band | + side (b + k \|tau\|) | 1.4 / 2.5 | 3.5 / 4.6 | 1.6 / 4.1 |
+| full | the above, 80 ms ahead | **0.6 / 1.8** | **0.7 / 1.7** | 0.2 / 0.5 |
+
+- **Full compensation cuts the tracking error 3-5x**: median 2.0 -> 0.6 mm at 2 cm/s, 3.8 -> 0.7 mm at
+  5 cm/s; the max 5.4-6.8 -> 1.7-1.8 mm. With it the error hardly depends on speed.
+- **The model predicted the ranking and roughly the size beforehand.** `so101-track plan` runs the commands
+  through a virtual servo (the S1 model with a 65 ms delay); the real arm matches it within 0.5 mm except
+  that "full" stays at 0.6-0.7 mm instead of 0.2-0.5: what the model does not have.
+- **The parts do different jobs.** spring removes the constant offset (mean tool offset 1.0-1.4 -> 0.3 mm,
+  mostly vertical) and halves the static error after stopping (0.93 -> 0.40 deg), but at this pose the sag
+  is small (elbow 0.4 deg) and the delay dominates while moving, so the median does not change. band removes
+  the error that flips with direction. Only the lead removes the delay, which is most of the error at 5 cm/s.
+- **The lead is slightly long**: the residual delay is -18 ms (2 cm/s) and -10 ms (5 cm/s), so 65-70 ms would
+  fit better (realigned medians 0.45-0.5 mm; not run).
+- Repeats agree within 0.05 mm. wrist_roll, which does not move on the circle, stays 0.15 deg off: it rests
+  in its band where move_to left it (no motion, so no side to compensate). Temperatures 36-38 C.
+- Better than M1's numbers (circle 3.8 / 6.1 mm median) already without compensation: P = 32 and reads that
+  do not add a tick of lag.
 
 ## Hardware
 
