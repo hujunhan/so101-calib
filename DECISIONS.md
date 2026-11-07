@@ -47,3 +47,20 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   steps by ~0.35 deg at 32); P = 16 (LeRobot's default "to avoid shakiness", errors twice as large).
 - **Caveats:** the shakiness reports are from teleoperation with noisy commands, which M2 has not tried. M3
   will choose its own P; M2's data will show what each choice costs.
+
+## 2026-11-06: S2 references: an iPad dot grid, touched with a pointer fixed to the gripper
+
+- **Decided:** S2 fits the joint zero offsets from touches: torque off, the user guides a pointer to dots of a
+  grid shown on an iPad (exact pixel pitch), placed at several heights and tilts; the joint angles at each
+  touch are recorded. The pointer is something thin and stiff fixed to the gripper; its offset is fitted
+  with the joint offsets.
+- **Why:** LeRobot's calibration takes each joint's zero from a hand-placed "middle" pose, while the URDF
+  (so101_new_calib) assumes the true middle, so offsets of a few degrees are expected (M1: 10 cm read as
+  8.66 cm). Known grid positions give three coordinates per touch, more than a plane constraint; touches on
+  one plane alone do not separate the parameters (Ikits and Hollerbach; Zhuang et al.), so heights, tilts and
+  pointer angles vary. The iPad needs no printer, its pitch is exact, and S3 can reuse it.
+- **Options:** iPad grid; printed paper grid (needs a printer; printers scale by ~1%); ruler marks on the table
+  (0.5-1 mm marking error). Pointer: a pointer in the gripper (sharp, offset fitted); the fixed jaw tip (from
+  the mesh, but a few mm wide).
+- **Limit:** a shoulder_pan offset turns the whole arm about the vertical axis, exactly like a grid turned on
+  the table, so it cannot be told apart here; it is fixed with the camera frames in S4.
