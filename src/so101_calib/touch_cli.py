@@ -2,8 +2,11 @@
 
     so101-touch plan                    no hardware: where to put the iPad, the touches, and how precisely a
                                         simulated arm's offsets come back from them
-    so101-touch record fit|check        torque OFF: guide the pointer to each dot, press Enter; the joints
-                                        are read -> results/s2/touch_<fit|check>_<time>.npz
+    so101-touch record fit|check        teleop: the follower (torque on, P = SERVO_P) copies the leader;
+                                        bring the pointer onto each dot with the leader, press Enter; the
+                                        follower's joints are read -> results/s2/touch_<fit|check>_<time>.npz
+                                        (--limp: torque off, guide the follower by hand, as in the first
+                                        two runs: hand forces bend the arm where the encoders cannot see)
     so101-touch push [FILE.npz]         torque OFF: tip pinned in a hole, push the arm around; how far the
                                         tip computed from the joints moves (with FILE: report only)
     so101-touch fit FIT.npz [CHECK.npz] fit offsets, pointer and placement on FIT; test them on CHECK (only
@@ -110,81 +113,222 @@ class Reader:
             return np.array([q for t, q in self.buf if t_end - WINDOW_S <= t <= t_end])
 
 
-def record(kind: str) -> None:
+TELEOP_SPEED = np.radians(15.0)  # the follower's move onto the leader's pose at the start
+STALL_DEG, STALL_S = 5.0, 0.3  # as SafeArm.follow: hold and stop if the follower cannot reach the leader
+PRESS_DEG = 0.5  # command - measured beyond the S1 servo model by this much: the pointer pushes on something
+
+
+class Teleop:
+    """The follower follows the leader (torque on, every command through SafeArm's safety filter, gripper
+    held), in a background thread that owns both buses. Keeps the last seconds of follower reads."""
+
+    def __init__(self, arm, leader_bus, jm, grip: float, ptr: tc.Pointer):
+        from so101_core.arm import Rate
+
+        self.arm, self.leader, self.jm, self.grip, self.ptr = arm, leader_bus, jm, grip, ptr
+        self.rate = Rate(arm.safety.cfg.rate_hz)
+        self.buf: list[tuple[float, np.ndarray, np.ndarray]] = []
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.show = threading.Event()
+        self.error: str | None = None
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+
+    def leader_q(self) -> np.ndarray:
+        from so101_core.convert import lerobot_to_rad
+
+        q = lerobot_to_rad(self.leader.sync_read("Present_Position", num_retry=3), self.jm)
+        q[5] = self.grip
+        return q
+
+    def _loop(self) -> None:
+        lag_since, last_print = None, 0.0
+        try:
+            while not self.stop.is_set():
+                sent = self.arm.command(self.leader_q())
+                q = self.arm.read()
+                now = time.perf_counter()
+                with self.lock:
+                    self.buf.append((now, q, sent))
+                    self.buf = [b for b in self.buf if b[0] > now - 2.0]
+                if np.degrees(np.abs(sent - q)[:5]).max() > STALL_DEG:
+                    lag_since = lag_since or now
+                    if now - lag_since > STALL_S:
+                        self.arm.hold()
+                        self.error = (
+                            f"the follower stayed > {STALL_DEG:.0f} deg from the leader for {STALL_S} s "
+                            "(pushing on something?); it holds where it is"
+                        )
+                        return
+                else:
+                    lag_since = None
+                if self.show.is_set() and now - last_print > 0.2:
+                    last_print = now
+                    sys.stdout.write(
+                        f"\r    now: pointer {self.ptr.pitch_deg(q):5.1f} deg down, "
+                        f"roll {np.degrees(q[4]):+6.1f} deg   "
+                    )
+                    sys.stdout.flush()
+                self.rate.sleep()
+        except Exception as e:  # bus errors: stop following; SafeArm holds on exit
+            self.error = f"{type(e).__name__}: {e}"
+
+    def window(self, t_end: float) -> tuple[np.ndarray, np.ndarray]:
+        with self.lock:
+            rows = [(q, c) for t, q, c in self.buf if t_end - WINDOW_S <= t <= t_end]
+        return np.array([r[0] for r in rows]), np.array([r[1] for r in rows])
+
+
+def press_excess_deg(q: np.ndarray, sent: np.ndarray, model, grav) -> float:
+    """How far command - measured exceeds what the S1 servo model allows at this pose (spring plus the
+    widest band), on lift, elbow and wrist. Above PRESS_DEG the pointer is likely pushing on the glass."""
+    tau = grav.tau(q[:5])
+    spring = model.error_deg(tau, np.zeros(5), ("spring",))
+    band = np.abs(np.array(model.b) + np.array(model.k) * np.abs(tau))
+    excess = np.abs(np.degrees(sent - q)[:5] - spring) - band
+    return float(excess[list(tc.FITTED)].max())
+
+
+def record(kind: str, limp: bool = False) -> None:
     from so101_core.arm import SafeArm
     from so101_core.config import DeviceConfig, JointMap
 
+    from so101_calib import SERVO_P
+    from so101_calib import statics as st
+    from so101_calib.compensation import ServoModel
+
     touches = tc.touch_list(kind)
-    jm = JointMap.load()
+    jm, devices = JointMap.load(), DeviceConfig.load()
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = RESULTS / f"touch_{kind}_{datetime.now():%Y%m%d_%H%M%S}.npz"
     meta = {
         "date": datetime.now().isoformat(timespec="seconds"),
         "kind": kind,
+        "mode": "limp" if limp else "teleop",
+        "position_p": None if limp else SERVO_P,
         "grid_pitch_m": tc.PITCH_M,
         "joint_map_offset_rad": jm.offset.tolist(),
     }
-    rec: dict[str, list] = {k: [] for k in ("dot", "xyz", "q", "q_std", "ask_pitch", "ask_roll")}
+    keys = ("dot", "xyz", "q", "q_std", "q_cmd", "press_deg", "ask_pitch", "ask_roll")
+    rec: dict[str, list] = {k: [] for k in keys}
     where = "flat on the table" if kind == "fit" else "flat on the box (10-15 cm high)"
+    if limp:
+        how = (
+            "The arm goes LIMP: hold it. Put the pointer tip on the dot's centre, hold still, press Enter "
+            "with the other hand."
+        )
+    else:
+        how = (
+            "TELEOP: move the LEADER; the follower (torque on) copies it, its gripper stays as it is.\n"
+            "Bring the pointer tip onto the dot's centre so it just touches (or hovers < 1 mm), never\n"
+            "pressing; let the leader rest, then press Enter. Do not touch the follower."
+        )
     print(
         f"{len(touches)} touches. The iPad {where}, landscape, row 1 nearest the arm, grid full screen.\n"
-        "The arm goes LIMP: hold it. For each touch: put the pointer tip on the dot's centre, hold still, "
-        "press Enter with the other hand.\n"
+        f"{how}\n"
         "  Enter = record   s + Enter = skip   r + Enter = redo the last one   q + Enter = save and stop"
     )
-    if input("\n>>> Ready? The arm will go limp (torque off). Type 'yes': ").strip().lower() != "yes":
-        return
     ptr = tc.Pointer()
-    with SafeArm(DeviceConfig.load(), joint_map=jm).connect(torque=False) as arm:
-        reader = Reader(arm, ptr)
-        reader.thread.start()
-        i = 0
-        while i < len(touches):
-            t = touches[i]
-            print(
-                f"\n[{i + 1}/{len(touches)}] dot {t.dot}: pointer {_pitch_word(t.pitch_deg)}, "
-                f"gripper {_roll_word(t.roll_deg)}"
-            )
-            reader.show.set()
-            cmd = input().strip().lower()
-            t_enter = time.perf_counter()
-            reader.show.clear()
-            if cmd == "q":
-                break
-            if cmd == "s":
+    model, grav = (None, None) if limp else (ServoModel.load(), st.Gravity())
+    arm = SafeArm(devices, joint_map=jm, position_p=None if limp else SERVO_P)
+    leader_dev = None
+    if limp:
+        if input("\n>>> Ready? The arm will go limp (torque off). Type 'yes': ").strip().lower() != "yes":
+            return
+    else:
+        from so101_core.tools.twin import open_device
+
+        leader_dev = open_device("leader", devices)
+        prompt = (
+            "\n>>> The follower will be POWERED and then move to the leader's pose at "
+            f"{np.degrees(TELEOP_SPEED):.0f} deg/s. Put the leader in about the follower's pose first. "
+            "Type 'yes': "
+        )
+        if input(prompt).strip().lower() != "yes":
+            leader_dev.bus.disconnect(disable_torque=False)
+            return
+    try:
+        with arm.connect(torque=not limp):
+            if limp:
+                src = Reader(arm, ptr)
+            else:
+                grip = arm.read()[5]
+                src = Teleop(arm, leader_dev.bus, jm, grip, ptr)
+                arm.move_to(src.leader_q(), speed_rad_s=TELEOP_SPEED)
+                print("Following the leader.")
+            src.thread.start()
+            i = 0
+            while i < len(touches):
+                t = touches[i]
+                print(
+                    f"\n[{i + 1}/{len(touches)}] dot {t.dot}: pointer {_pitch_word(t.pitch_deg)}, "
+                    f"gripper {_roll_word(t.roll_deg)}"
+                )
+                src.show.set()
+                cmd = input().strip().lower()
+                t_enter = time.perf_counter()
+                src.show.clear()
+                if getattr(src, "error", None):
+                    print(f"\nStopped: {src.error}")
+                    break
+                if cmd == "q":
+                    break
+                if cmd == "s":
+                    i += 1
+                    continue
+                if cmd == "r":
+                    if rec["dot"]:
+                        for v in rec.values():
+                            v.pop()
+                        i -= 1
+                        print("    removed the last touch")
+                    continue
+                if limp:
+                    qs, sent = src.window(t_enter), None
+                else:
+                    qs, sent = src.window(t_enter)
+                if len(qs) < 5:
+                    print("    too few reads; try again")
+                    continue
+                std = np.degrees(qs[:, :5].std(0))
+                if std.max() > STILL_DEG:
+                    print(
+                        f"    the arm moved (std up to {std.max():.2f} deg); hold still and press Enter again"
+                    )
+                    continue
+                q = qs.mean(0)
+                q_cmd = q if sent is None else sent.mean(0)
+                press = 0.0 if sent is None else press_excess_deg(q, q_cmd, model, grav)
+                if press > PRESS_DEG:
+                    print(
+                        f"    the pointer seems to push ({press:.1f} deg beyond the servo model): raise the "
+                        "leader a hair and press Enter again"
+                    )
+                    continue
+                rec["dot"].append(t.dot)
+                rec["xyz"].append(tc.DOTS[t.dot])
+                rec["q"].append(q)
+                rec["q_std"].append(qs.std(0))
+                rec["q_cmd"].append(q_cmd)
+                rec["press_deg"].append(press)
+                rec["ask_pitch"].append(t.pitch_deg)
+                rec["ask_roll"].append(t.roll_deg)
+                np.savez_compressed(out, meta=json.dumps(meta), **{k: np.array(v) for k, v in rec.items()})
+                print(
+                    f"    recorded: pointer {ptr.pitch_deg(q):.0f} deg down, "
+                    f"roll {np.degrees(q[4]):+.0f} deg ({len(qs)} reads)"
+                )
                 i += 1
-                continue
-            if cmd == "r":
-                if rec["dot"]:
-                    for v in rec.values():
-                        v.pop()
-                    i -= 1
-                    print("    removed the last touch")
-                continue
-            qs = reader.window(t_enter)
-            if len(qs) < 5:
-                print("    too few reads; try again")
-                continue
-            std = np.degrees(qs[:, :5].std(0))
-            if std.max() > STILL_DEG:
-                print(f"    the arm moved (std up to {std.max():.2f} deg); hold still and press Enter again")
-                continue
-            q = qs.mean(0)
-            rec["dot"].append(t.dot)
-            rec["xyz"].append(tc.DOTS[t.dot])
-            rec["q"].append(q)
-            rec["q_std"].append(qs.std(0))
-            rec["ask_pitch"].append(t.pitch_deg)
-            rec["ask_roll"].append(t.roll_deg)
-            np.savez_compressed(out, meta=json.dumps(meta), **{k: np.array(v) for k, v in rec.items()})
-            print(
-                f"    recorded: pointer {ptr.pitch_deg(q):.0f} deg down, roll {np.degrees(q[4]):+.0f} deg "
-                f"({len(qs)} reads)"
-            )
-            i += 1
-        reader.stop.set()
-        reader.thread.join(timeout=1.0)
-        input("\n>>> Done. Rest the arm in its rest pose (or hold it), then press Enter. ")
+            if not limp and not src.error:
+                src.show.clear()
+                input("\n>>> Bring the follower back to its rest pose with the leader, then press Enter. ")
+            src.stop.set()
+            src.thread.join(timeout=1.0)
+            if limp:
+                input("\n>>> Done. Rest the arm in its rest pose (or hold it), then press Enter. ")
+    finally:
+        if leader_dev is not None:
+            leader_dev.bus.disconnect(disable_torque=False)
     print(f"Saved {len(rec['dot'])} touches to {out}")
 
 
@@ -348,9 +492,11 @@ def main() -> None:
         else:
             push()
     elif a.stage == "record":
-        if a.args not in (["fit"], ["check"]):
-            raise SystemExit("so101-touch record fit|check")
-        record(a.args[0])
+        limp = "--limp" in a.args
+        kind = [x for x in a.args if x != "--limp"]
+        if kind not in (["fit"], ["check"]):
+            raise SystemExit("so101-touch record fit|check [--limp]")
+        record(kind[0], limp)
     else:
         if not a.args:
             raise SystemExit("so101-touch fit FIT.npz [CHECK.npz]")

@@ -64,3 +64,24 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   the mesh, but a few mm wide).
 - **Limit:** a shoulder_pan offset turns the whole arm about the vertical axis, exactly like a grid turned on
   the table, so it cannot be told apart here; it is fixed with the camera frames in S4.
+
+## 2026-11-06: S2 touches by teleoperation, not by hand on the limp arm
+
+- **Decided:** record the touches with the follower under servo control (P = 32), driven from the leader arm;
+  nobody touches the follower. `so101-touch record` does this by default; `--limp` keeps the first method.
+  Fit set cut to 12 touches (three dots, pointer steep and shallow, roll -60 and +60 deg; as precise as 27
+  in simulation).
+- **Why:** two hand-guided runs (27 and 12 touches) left 3.5-3.8 mm RMS after the fit, against ~1 mm
+  expected, and 2-2.7 mm of it vertical although the tip was on the glass: at each touch the arm's shape
+  differed from what the encoders report. No geometric extension (link lengths, axis tilts, joint scales)
+  reduced it (3.8 -> 3.7 mm), so it is random per touch. The user had to push the last millimetres, and a
+  limp arm must be held; forces then bend printed parts and open play the encoders do not see. Under servo
+  control the arm carries only its weight, as in use, and the S1 servo model flags a pointer that pushes
+  (command - measured beyond spring plus band).
+- **Options:** teleoperation; a pin test first (tip in a hole, push, measure; tells the size of the effect
+  but not a better method); calibrate later with the camera (S4, the arm moving itself); skip (offsets of
+  ~2-5 deg shift the tip ~40 mm in the base frame, mostly a smooth shift that a camera calibration against
+  this arm would partly absorb).
+- **Context:** no published end-effector accuracy for the SO-101 was found. One project found a 10.5 deg
+  shoulder_lift zero error through a wrist-camera hand-eye calibration and fitted joint zeros with the board
+  on the table plane (github.com/enesbirlik/so101-hybrid-manipulation, PR 2).
