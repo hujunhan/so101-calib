@@ -15,8 +15,9 @@ and docs/DESIGN.md say what this repo starts from.
   no offsets applied. `so101-touch` stays for a later try (rigid pointer, teleop).
 - S3 done (README): wrist intrinsics in results/s3/wrist_intrinsics.yaml (left corners weak); ZED over UVC
   with the factory calibration (`use: factory` in results/s3/zed_intrinsics.yaml; file in captures/zed/).
-- **Next:** S4: hand-eye (eye-in-hand: wrist camera; eye-to-hand: ZED 2). Open for S4: eye-to-hand needs a
-  light marker on the gripper (the iPad is too big to carry).
+- **Next:** S4: `so101-handeye` written (zed-view to place the ZED; run: teach a limp pose, then ~24 automatic poses
+  over the still iPad, collision-checked with it; fit: hand-eye with/without joint offsets, held-out comparison,
+  ZED via the shared board). The user runs `zed-view` then `run`; Claude runs `fit`. 
 
 ## How we work
 - Claude writes and runs most of the code. The user does physical work on the arm, makes the key

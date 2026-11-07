@@ -150,11 +150,28 @@ class Collisions:
     so101-core's MuJoCo model. The folded rest pose itself overlaps in the model (the meshes are coarse and
     the real arm rests on the table), so routes are checked once they have left the rest pose."""
 
-    def __init__(self, clearance_m: float = 0.005, payload_box_m: tuple[float, float, float] | None = None):
+    def __init__(
+        self,
+        clearance_m: float = 0.005,
+        payload_box_m: tuple[float, float, float] | None = None,
+        world_boxes: list[tuple[np.ndarray, np.ndarray, np.ndarray]] | None = None,
+    ):
+        """world_boxes: still objects, each (centre (3,) m, rotation (3, 3), full size (3,) m), e.g. the iPad
+        lying on the table in S4."""
         import mujoco
         from so101_core.model import JOINTS, SCENE_PATH
 
         spec = mujoco.MjSpec.from_file(str(SCENE_PATH))
+        for k, (centre, R, size) in enumerate(world_boxes or []):
+            g = spec.worldbody.add_geom()
+            g.name = f"object{k}"
+            g.type = mujoco.mjtGeom.mjGEOM_BOX
+            g.size = np.asarray(size, float) / 2
+            g.pos = np.asarray(centre, float)
+            q = np.zeros(4)
+            mujoco.mju_mat2Quat(q, np.asarray(R, float).ravel())
+            g.quat = q
+            g.contype, g.conaffinity = 1, 1
         if payload_box_m is not None:
             length, width, thickness = payload_box_m
             geom = spec.body("gripper").add_geom()
