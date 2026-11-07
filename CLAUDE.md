@@ -7,9 +7,10 @@ and docs/DESIGN.md say what this repo starts from.
 ## Current state
 - 2026-11-06: repository set up. Session order agreed (S1 first). S1a tool written (`so101-servo`, dense reads
   via so101-core b6f76e9); not yet run on the arm.
-- **Next:** agree the session plan in README with the user (it is a draft), then the open decisions in
-  DECISIONS.md (ZED SDK vs UVC, the ChArUco board). S1 (servo identification) needs no camera and could start
-  first.
+- **Next:** the user runs `so101-servo run`, Claude runs `analyze`; then S1b (sag and backlash over poses,
+  approached from both sides; load) and S1c (feed-forward on M1's circle). Open for S3: ZED SDK vs UVC; the
+  ChArUco board (the user has no print; an iPad is the likely board for intrinsics and eye-in-hand, not for
+  eye-to-hand, which needs a light marker on the gripper).
 
 ## How we work
 - Claude writes and runs most of the code. The user does physical work on the arm, makes the key
