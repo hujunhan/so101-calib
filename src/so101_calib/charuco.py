@@ -40,6 +40,15 @@ def detector() -> cv2.aruco.CharucoDetector:
     return cv2.aruco.CharucoDetector(board(), params, dparams)
 
 
+def spread_out(ids: np.ndarray) -> bool:
+    """The corners span at least two rows and two columns of the board with two corners each: corners on
+    (nearly) one line fix no pose (a ZED view with 7 corners in one row and 1 below broke the calibration)."""
+    cols = SQUARES_X - 1
+    _, counts_r = np.unique(ids // cols, return_counts=True)
+    _, counts_c = np.unique(ids % cols, return_counts=True)
+    return (counts_r >= 2).sum() >= 2 and (counts_c >= 2).sum() >= 2
+
+
 @dataclass
 class View:
     """Detected ChArUco corners in one image: ids (n,), image points (n, 2), board points (n, 3) in m."""
@@ -55,6 +64,8 @@ def detect(gray: np.ndarray, det: cv2.aruco.CharucoDetector | None = None) -> Vi
     if ids is None or len(ids) < MIN_CORNERS:
         return None
     ids = ids.ravel()
+    if not spread_out(ids):
+        return None
     obj = board().getChessboardCorners()[ids]
     return View(ids, corners.reshape(-1, 2).astype(np.float64), obj.astype(np.float64))
 

@@ -330,6 +330,14 @@ def calibrate_cmd(folders: list[Path]) -> None:
         out_yaml[label] = cal.intr.to_dict() | {"rms_px": round(cal.rms_px, 4)}
     if name == "zed" and FACTORY.exists():
         fac = ch.read_zed_conf(FACTORY, "HD")
+        out_yaml["use"] = "factory"  # S3: confirmed by our left eye and the triangulated square size
+        out_yaml["factory"] = {
+            "left": fac["left"].to_dict(),
+            "right": fac["right"].to_dict(),
+            "baseline_mm": fac["baseline_mm"],
+            "t_mm": [float(x) for x in fac["t_mm"]],
+            "rot_rx_cv_rz_rad": [float(x) for x in fac["rot_rad"]],
+        }
         for label in labels:
             errs = [ch.reprojection_px(v, fac[label]) for v in eyes[labels.index(label)]]
             md.append(

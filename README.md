@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. Next: S3 (cameras).
+> **Status (2026-11-06):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). Next: S4 (hand-eye).
 
 ## What M1 hands over
 
@@ -234,6 +234,45 @@ several mm off; that is not worth more sessions. What remains for the rest of M2
   stretched out or loaded). S1's model removes most of both: 0.6-0.7 mm on M1's circle (S1c).
 - If it is ever revisited: a rigid pointer (a printed tip screwed to the gripper, or the fixed jaw tip, whose
   position is in the mesh, 6.3 mm beyond the tool frame), teleoperation, or the camera measuring the arm in S4.
+
+## S3 result: camera intrinsics (2026-11-07)
+
+`so101-cam` shows an 8 x 5 ChArUco board (25 mm squares, pixel for pixel at 264 ppi; ruler-checked) on an
+iPad, takes views automatically when the board is still and the pose is new, and calibrates with OpenCV
+(5-parameter distortion). The ZED 2 is read over UVC (DECISIONS); its factory calibration was downloaded from
+Stereolabs and compared. Reports: [wrist](results/s3/wrist_20261107_001917.md),
+[ZED](results/s3/zed_20261107_002443.md); parameters: `results/s3/*_intrinsics.yaml`.
+
+| Camera | Views | RMS / cross-validated (px) | fx, fy (px) | cx, cy (px) | Notes |
+|---|---:|---|---|---|---|
+| wrist (USB, 1280 x 720) | 21 | 0.23 / 0.24 | 732.0, 730.9 (+- 2.3) | 680.1, 339.9 | 82 x 52 deg; distortion up to ~50 px in the left corners |
+| ZED left, ours | 17 | 0.33 / 0.37 | 535.2, 535.2 (+- 2.0) | 638.0, 349.1 | |
+| ZED left, factory | 17 | 0.43 on our views | 534.7, 534.9 | 638.1, 348.4 | |
+| ZED right, ours | 16 | 0.34 / 0.49 | 549.2, 549.2 (+- 4.5) | 654.3, 353.2 | fewer, partial views |
+| ZED right, factory | 17 | 0.52 on our views | 534.0, 534.1 | 647.7, 354.2 | |
+
+| ZED stereo | Baseline (mm) | 25 mm squares measured by triangulation |
+|---|---:|---:|
+| ours | 122.8 | 25.01 mm |
+| factory | 120.0 | 25.08 mm (+0.3 %) |
+
+- **The ZED's factory calibration holds; M2 uses it.** Our left eye agrees with it within 0.1 % in focal length
+  and 1 px in the centre, and the factory parameters reproject our views almost as well as our own fit does
+  on views it was not fitted on (0.43 vs 0.37 px). Triangulating the board with the factory pair measures its
+  25 mm squares as 25.08 mm: depth from the ZED is metric to about 0.3 % (the iPad's scale was checked with a
+  ruler to about 0.5 %). Our right eye (fx 549, 3 sigma from the factory's 534) and our baseline (122.8 mm) are
+  less certain: the right eye saw the board partly, near the image edge, in many views.
+- **The wrist camera is calibrated for the first time**: 0.23 px, and 0.24 px on views left out, so it does
+  not overfit. Its centre is 40 px right of the image centre, and its distortion moves the image corners by up
+  to ~50 px, so undistorting matters near the edges. The left image corners had few board views: a bootstrap
+  over the views puts the ray direction there to ~14-21 px (1.5-3 deg), against ~1 px in the centre and 4-5 px
+  at the other edges. Enough for objects in front of the gripper; 5-6 more views in the left corners would fix
+  it (`so101-cam calibrate` merges folders).
+- Two detector fixes came from the first real frames: refining missed markers (`tryRefineMarkers`; 10.7 -> 19.8
+  of 20 markers with iPad glare and the gripper in view), and rejecting views whose corners lie on one line (a
+  ZED view with 7 corners in a row and 1 below wrecked the right eye's fit).
+- Simulation guided how to capture: 15 views covering the whole image are as good as 30, while views only in
+  the centre are ~10x worse at the edges (the distortion is extrapolated there).
 
 ## Hardware
 

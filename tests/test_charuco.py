@@ -106,3 +106,8 @@ def test_factory_file_is_parsed(tmp_path):
     f = ch.read_zed_conf(conf)
     assert f["left"].K[0, 0] == 534.7 and f["baseline_mm"] == 120.01
     assert np.allclose(f["rot_rad"], [0.002, 0.0005, 0.0002])
+
+
+def test_corners_on_one_line_are_rejected():
+    assert not ch.spread_out(np.array([0, 1, 2, 3, 4, 5, 6, 13]))  # one row and a single corner below
+    assert ch.spread_out(np.array([0, 1, 2, 7, 8, 9]))
