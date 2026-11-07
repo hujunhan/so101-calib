@@ -1,0 +1,23 @@
+{
+ "fit": "touch_fit_20261106_230928.npz",
+ "check": null,
+ "offsets_deg": {
+  "shoulder_pan": 0.0,
+  "shoulder_lift": -3.342,
+  "elbow_flex": -6.129,
+  "wrist_flex": -1.428,
+  "wrist_roll": 0.0
+ },
+ "offsets_std_deg": {
+  "shoulder_pan": 0.0,
+  "shoulder_lift": 0.92,
+  "elbow_flex": 1.553,
+  "wrist_flex": 1.018,
+  "wrist_roll": 0.0
+ },
+ "pointer_m": [
+  -0.01402,
+  0.00016,
+  -0.11079
+ ]
+}

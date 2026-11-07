@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). Next: S2 (kinematic calibration).
+> **Status (2026-11-06):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. Next: S3 (cameras).
 
 ## What M1 hands over
 
@@ -31,7 +31,7 @@ From [so101-kinematics](https://github.com/hujunhan/so101-kinematics) (README, "
 | Session | Content | Output |
 |---|---|---|
 | **S1** | Servo identification through `SafeArm`: step and sine tests per joint; delay, sag against pose and load, deadband, backlash; the feed-forward test from M1 | Servo model, compensation result |
-| **S2** | The kinematic error: touch points on a printed grid, fit joint zero offsets (and check link lengths) | Offsets, before / after error |
+| **S2** | The kinematic error: touch points on an iPad grid, fit joint zero offsets. **Tried and stopped** (see the S2 section) | Uncalibrated error measured; no offsets applied |
 | **S3** | Cameras: wrist-camera intrinsics (ChArUco); ZED 2 factory calibration check; ZED SDK vs raw UVC | Intrinsics in YAML |
 | **S4** | Hand-eye: eye-in-hand (wrist) and eye-to-hand (ZED 2) | `T_<to>_<from>` in YAML |
 | **S5** | Error budget and demo: click in the ZED image, the tip goes there; heat map over the workspace | Demo, heat map |
@@ -187,6 +187,53 @@ target joints: how well the servos follow, not absolute accuracy (S2). Full tabl
   in its band where move_to left it (no motion, so no side to compensate). Temperatures 36-38 C.
 - Better than M1's numbers (circle 3.8 / 6.1 mm median) already without compensation: P = 32 and reads that
   do not add a tick of lag.
+
+## S2: kinematic calibration, tried and stopped
+
+Goal: fit the joint zero offsets (LeRobot's calibration takes each zero from a hand-placed "middle" pose), so
+that FK matches the real tool. `so101-touch` records the joint angles while a pointer touches the dots of a
+grid shown on an iPad (5 cm pitch, exact pixels), then fits the offsets of shoulder_lift, elbow and wrist_flex,
+the pointer tip and the grid placement by least squares. The pointer was a toothpick taped to the fixed jaw.
+Data: `results/s2/` (all four runs, including the aborted ones).
+
+| Run | Method | Touches | RMS / max, offsets 0 (mm) | RMS / max, fitted (mm) | Offsets lift / elbow / wrist (deg) | Pointer tip in the gripper frame (mm) |
+|---|---|---:|---:|---:|---|---|
+| 22:41 | limp arm, guided by hand | 27 | 8.1 / 14.6 | 3.8 / 10.3 | -1.5 +- 0.6 / -4.6 +- 0.8 / -2.2 +- 0.7 | [-11.0, -2.2, -118.6] |
+| 23:09 | limp arm, guided by hand | 12 | 8.5 / 12.2 | 3.5 / 7.7 | -3.3 +- 0.9 / -6.1 +- 1.6 / -1.4 +- 1.0 | [-14.0, 0.2, -110.8] |
+| 23:29 | teleop (leader arm), P = 32 | 2 | - | - | stopped | - |
+| 23:34 | teleop (leader arm), P = 32 | 1 | - | - | stopped | - |
+
+What happened:
+
+- **The uncalibrated arm is about 8 mm RMS off (max 12-15 mm)** in the touched region (tool 25-35 cm out, on
+  the table), even with the pointer and the grid placement fitted in its favour. This is the one external
+  accuracy number M2 has; it agrees with M1's ruler check (10 cm read as 8.66 cm).
+- **The fit left 3.5-3.8 mm, against about 1 mm expected** from the simulation in `so101-touch plan`. 2-2.7 mm
+  of it was vertical although the tip was on the glass. Adding link lengths, axis tilts or joint scales to the
+  model did not help (3.8 -> 3.7 mm), so the residual is random per touch, not a missing parameter.
+- **The two hand runs disagree** by about 2 deg on lift and 1.6 deg on elbow (about 1-2 standard errors), and
+  **the fitted pointer tip moved 8.7 mm between them**, 7.8 mm of it along the toothpick: the toothpick slid in
+  its tape. It can also move within a run, which no fit can follow.
+- On a limp arm the user had to hold the arm and push the last millimetres; the forces bend the printed parts
+  and open play that the encoders do not see. Teleoperation was meant to remove that (the follower holds itself
+  at P = 32, and the S1 servo model flags a push), but two attempts were stopped after 1-2 touches because the
+  toothpick still was not fixed firmly enough.
+
+**Decision: stop here** (DECISIONS.md, 2026-11-06). Nothing was written to the joint map; the arm runs with
+LeRobot's calibration. With a cheap printed arm, joints that settle anywhere within a 0.1-0.7 deg band (S1b) and
+a pointer that cannot be fixed rigidly, the result would be offsets known to a degree or two and a model still
+several mm off; that is not worth more sessions. What remains for the rest of M2:
+
+- **Absolute accuracy, uncalibrated: about 8 mm RMS, up to ~15 mm.** The error budget (S5) uses this.
+- Part of it is a smooth shift that a hand-eye calibration against this arm (S4) absorbs for camera-guided
+  work, which is what M3 needs. Repeatability (S1: about 0.1 deg per joint after the model, under 1 mm at the
+  tip) matters more there than absolute accuracy.
+- **Repeatability, from S1b's encoders** (FK of the measured joints, so not counting flex the encoders do not
+  see): the same pose reached the same way twice lands 0.2-0.4 mm apart (median; max 2-4 mm); reached from
+  opposite sides it lands 7 mm apart (median, up to 16-21 mm), and gravity sags the tip 3-5 mm (up to 12-17 mm
+  stretched out or loaded). S1's model removes most of both: 0.6-0.7 mm on M1's circle (S1c).
+- If it is ever revisited: a rigid pointer (a printed tip screwed to the gripper, or the fixed jaw tip, whose
+  position is in the mesh, 6.3 mm beyond the tool frame), teleoperation, or the camera measuring the arm in S4.
 
 ## Hardware
 

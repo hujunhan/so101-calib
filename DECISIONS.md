@@ -85,3 +85,16 @@ Format: date, decided, why, options. Open questions inherited from the series pl
 - **Context:** no published end-effector accuracy for the SO-101 was found. One project found a 10.5 deg
   shoulder_lift zero error through a wrist-camera hand-eye calibration and fitted joint zeros with the board
   on the table plane (github.com/enesbirlik/so101-hybrid-manipulation, PR 2).
+
+## 2026-11-06: stop S2 (kinematic calibration); no offsets applied
+
+- **Decided:** stop the touch calibration. Nothing is written to the joint map; the arm keeps LeRobot's
+  calibration. M2 carries the uncalibrated accuracy (about 8 mm RMS, up to ~15 mm, in the touched region) into
+  the error budget.
+- **Why:** the user's call after four runs: a toothpick pointer slides in its tape (the fitted tip moved
+  8.7 mm between runs), hand-guided touches left 3.5-3.8 mm per touch, and two teleoperated runs stopped after
+  1-2 touches for the same pointer problem. On a cheap printed arm the result would be offsets known to a
+  degree or two; camera-guided work (M3) relies on repeatability and on a hand-eye calibration against this
+  arm, which absorbs part of the error.
+- **Options:** stop; continue with a rigid pointer (a printed tip screwed to the gripper, or the fixed jaw
+  tip) and teleoperation; fit the offsets later from the camera in S4 with the arm moving itself.
