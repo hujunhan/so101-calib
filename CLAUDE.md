@@ -46,6 +46,8 @@ and docs/DESIGN.md say what this repo starts from.
 - If the follower reports "Missing motor IDs", the servo power supply is off.
 - Always `uv sync --extra hw`: a plain `uv sync` removes LeRobot and with it opencv-python-headless, which
   deletes files that opencv-python shares (`cv2.aruco` disappears). Fix: `uv sync --extra hw --reinstall-package opencv-python`.
+  The same reinstall fixes "The function is not implemented" from `cv2.imshow`/`waitKey`: the headless build's
+  files had overwritten opencv-python's (no GUI). opencv-python is pinned below 5 to stay on LeRobot's major.
 - ZED 2 is `/dev/video6` as a UVC device: 2560x720 side by side, take the left half.
 - Rendering Mermaid diagrams: `npx -y @mermaid-js/mermaid-cli@11.4.2 -p <puppeteer.json>` with
   `{"args":["--no-sandbox"]}`; Chromium's sandbox cannot start on this Ubuntu.
