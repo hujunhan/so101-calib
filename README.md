@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). Next: S4 (hand-eye).
+> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). Next: S4 (hand-eye).
 
 ## What M1 hands over
 
