@@ -4,6 +4,8 @@
                                         simulated arm's offsets come back from them
     so101-touch record fit|check        torque OFF: guide the pointer to each dot, press Enter; the joints
                                         are read -> results/s2/touch_<fit|check>_<time>.npz
+    so101-touch push [FILE.npz]         torque OFF: tip pinned in a hole, push the arm around; how far the
+                                        tip computed from the joints moves (with FILE: report only)
     so101-touch fit FIT.npz [CHECK.npz] fit offsets, pointer and placement on FIT; test them on CHECK (only
                                         its placement refitted) -> results/s2/<FIT>.md, offsets in .json
 
@@ -186,6 +188,77 @@ def record(kind: str) -> None:
     print(f"Saved {len(rec['dot'])} touches to {out}")
 
 
+PUSH_PHASES = (
+    ("still", "hold the arm lightly, no push"),
+    ("left", "push the arm to ITS left (sideways), as hard as for the last mm of a touch"),
+    ("right", "push to its right"),
+    ("away", "push away from the base"),
+    ("toward", "push toward the base"),
+    ("down", "push down (into the hole)"),
+    ("still2", "hold lightly again, no push"),
+)
+PUSH_S = 3.0
+
+
+def push() -> None:
+    """Pointer tip pinned in a small hole, the arm limp: push it in several directions and read the
+    joints. The tip cannot move, so any change in the tip computed from the joints is motion the encoders
+    read while the structure gives (printed parts, horns, the base on the table): the error of a pushed
+    touch."""
+    from so101_core.arm import SafeArm
+    from so101_core.config import DeviceConfig, JointMap
+
+    print(
+        "Make a small hole the pointer tip cannot slide out of (poke it into cardboard or an eraser\n"
+        "taped to the table, about 20 cm in front of the base). Put the tip in it, pointer steep, gripper\n"
+        f"level. Then {len(PUSH_PHASES)} phases of {PUSH_S:.0f} s: press Enter to start each, keep the tip\n"
+        "in the hole, do not tilt or turn the gripper on purpose."
+    )
+    if input("\n>>> Ready? The arm will go limp (torque off). Type 'yes': ").strip().lower() != "yes":
+        return
+    jm = JointMap.load()
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / f"push_{datetime.now():%Y%m%d_%H%M%S}.npz"
+    rows: dict[str, list] = {"phase": [], "t": [], "q": []}
+    with SafeArm(DeviceConfig.load(), joint_map=jm).connect(torque=False) as arm:
+        for name, what in PUSH_PHASES:
+            input(f"\n[{name}] {what}. Press Enter, then keep it up for {PUSH_S:.0f} s. ")
+            t0 = time.perf_counter()
+            while time.perf_counter() - t0 < PUSH_S:
+                rows["phase"].append(name)
+                rows["t"].append(time.perf_counter() - t0)
+                rows["q"].append(arm.read() - jm.offset)
+            print("    done")
+        np.savez_compressed(out, **{k: np.array(v) for k, v in rows.items()})
+        input("\n>>> Done. Rest the arm in its rest pose (or hold it), then press Enter. ")
+    print(f"Saved {out}\n")
+    push_report(out)
+
+
+def push_report(path: Path, fit_json: Path | None = None) -> None:
+    z = np.load(path)
+    ptr = tc.Pointer()
+    off, p = np.zeros(5), tc.POINTER_GUESS
+    fits = sorted(RESULTS.glob("touch_fit_*_fit.json")) if fit_json is None else [fit_json]
+    if fits:
+        js = json.loads(fits[-1].read_text())
+        off = np.radians([js["offsets_deg"][j] for j in ARM_JOINTS])
+        p = np.array(js["pointer_m"])
+    phase, q = z["phase"], z["q"][:, :5]
+    tips = np.array([ptr.tip(x + off, p) for x in q]) * 1000
+    ref_tip = tips[phase == "still"].mean(0)
+    ref_q = q[phase == "still"].mean(0)
+    print(f"pointer {np.round(p * 1000, 1).tolist()} mm, offsets {np.round(np.degrees(off), 2).tolist()} deg")
+    print("phase    | tip moved (computed), mean / max mm | joint change from still (deg)")
+    for name, _ in PUSH_PHASES:
+        m = phase == name
+        if not m.any():
+            continue
+        d = np.linalg.norm(tips[m] - ref_tip, axis=1)
+        dq = np.degrees(q[m].mean(0) - ref_q)
+        print(f"{name:8s} | {d.mean():5.2f} / {d.max():5.2f} | " + " ".join(f"{x:+.2f}" for x in dq))
+
+
 def load(path: Path) -> tuple[np.ndarray, np.ndarray, dict]:
     """Joint readings without any joint-map offset (as recorded, minus the offsets in use then), dots."""
     z = np.load(path)
@@ -264,11 +337,16 @@ def fit_cmd(fit_path: Path, check_path: Path | None) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("stage", choices=["plan", "record", "fit"])
+    ap.add_argument("stage", choices=["plan", "record", "fit", "push"])
     ap.add_argument("args", nargs="*")
     a = ap.parse_args()
     if a.stage == "plan":
         plan()
+    elif a.stage == "push":
+        if a.args:
+            push_report(Path(a.args[0]))
+        else:
+            push()
     elif a.stage == "record":
         if a.args not in (["fit"], ["check"]):
             raise SystemExit("so101-touch record fit|check")
