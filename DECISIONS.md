@@ -34,3 +34,16 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   depend on P, so measuring them at a gain we then change would be wasted.
 - **Options:** A/B at P = 32 first; S1b at P = 16 as planned (matches LeRobot's default, which M3 will use).
 - **Watch:** oscillation at rest (jitter column) and temperature after each joint.
+
+## 2026-11-06: the rest of M2 runs the servos at P = 32
+
+- **Decided:** position gain P = 32 (factory value) for all M2 measurements and demos from S1b on.
+  `so101_calib.SERVO_P`; S1a's tool keeps `--p` so the P = 16 baseline can be rerun.
+- **Why:** at P = 32 the error against gravity halves (elbow 3.0 -> 1.55 deg) and the rest band shrinks 2-4x;
+  no oscillation at rest and no temperature rise in a 4 min run. The error / gravity-torque ratio is about
+  the same on lift, elbow and wrist (3.1-3.6 deg/Nm at P = 16, 1.5-1.9 at P = 32), so a joint behaves like a
+  spring whose stiffness is set by P.
+- **Options:** P = 32; P = 64 (errors would roughly halve again, but shoulder_pan already overshoots 1.5 deg
+  steps by ~0.35 deg at 32); P = 16 (LeRobot's default "to avoid shakiness", errors twice as large).
+- **Caveats:** the shakiness reports are from teleoperation with noisy commands, which M2 has not tried. M3
+  will choose its own P; M2's data will show what each choice costs.
