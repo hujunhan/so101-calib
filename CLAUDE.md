@@ -19,6 +19,10 @@ and docs/DESIGN.md say what this repo starts from.
   over the still iPad, collision-checked with it; fit: hand-eye with/without joint offsets, held-out comparison,
   ZED via the shared board). The user runs `zed-view` then `run`; Claude runs `fit`. 
 
+- For M3 (noted 2026-11-07): the ZED is wide (~100 deg H as calibrated, 110 nominal); the workspace fills a small
+  part of the image and the room (people, a cat) the rest. Plan: FHD per eye (factory parameters exist) and a fixed
+  crop around the workspace (cx, cy shift; the hand-eye pose is unaffected). Decide the crop with M3's tasks.
+
 ## How we work
 - Claude writes and runs most of the code. The user does physical work on the arm, makes the key
   decisions and learns the concepts. Present options with a recommendation and let the user decide
