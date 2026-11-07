@@ -2027,9 +2027,9 @@ requires-dist = [
     { name = "pin", specifier = ">=3.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scipy", specifier = ">=1.11" },
-    { name = "so101-core", git = "https://github.com/hujunhan/so101-core?rev=f295ea29dc94bcdc005f8ea922f62362bcfab170" },
-    { name = "so101-core", extras = ["hw"], marker = "extra == 'hw'", git = "https://github.com/hujunhan/so101-core?rev=f295ea29dc94bcdc005f8ea922f62362bcfab170" },
-    { name = "so101-kinematics", git = "https://github.com/hujunhan/so101-kinematics?rev=4def7c8225c2a3325cf86211347edd50c475d5a2" },
+    { name = "so101-core", git = "https://github.com/hujunhan/so101-core?rev=b6f76e9bc757a1e4f228b8e72e1e7edb1b7a9915" },
+    { name = "so101-core", extras = ["hw"], marker = "extra == 'hw'", git = "https://github.com/hujunhan/so101-core?rev=b6f76e9bc757a1e4f228b8e72e1e7edb1b7a9915" },
+    { name = "so101-kinematics", git = "https://github.com/hujunhan/so101-kinematics?rev=32ebe872c4243d4c93906bbf887c46713b7dbff9" },
 ]
 provides-extras = ["hw"]
 
@@ -2042,7 +2042,7 @@ dev = [
 [[package]]
 name = "so101-core"
 version = "0.1.0"
-source = { git = "https://github.com/hujunhan/so101-core?rev=f295ea29dc94bcdc005f8ea922f62362bcfab170#f295ea29dc94bcdc005f8ea922f62362bcfab170" }
+source = { git = "https://github.com/hujunhan/so101-core?rev=b6f76e9bc757a1e4f228b8e72e1e7edb1b7a9915#b6f76e9bc757a1e4f228b8e72e1e7edb1b7a9915" }
 dependencies = [
     { name = "mujoco" },
     { name = "numpy" },
@@ -2057,7 +2057,7 @@ hw = [
 [[package]]
 name = "so101-kinematics"
 version = "0.1.0"
-source = { git = "https://github.com/hujunhan/so101-kinematics?rev=4def7c8225c2a3325cf86211347edd50c475d5a2#4def7c8225c2a3325cf86211347edd50c475d5a2" }
+source = { git = "https://github.com/hujunhan/so101-kinematics?rev=32ebe872c4243d4c93906bbf887c46713b7dbff9#32ebe872c4243d4c93906bbf887c46713b7dbff9" }
 dependencies = [
     { name = "arm-control" },
     { name = "matplotlib" },

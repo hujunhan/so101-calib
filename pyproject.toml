@@ -13,12 +13,15 @@ dependencies = [
     "opencv-python>=4.8",    # ChArUco detection, calibration
     "matplotlib>=3.8",
     "pyyaml>=6.0",
-    "so101-core @ git+https://github.com/hujunhan/so101-core@f295ea29dc94bcdc005f8ea922f62362bcfab170",
-    "so101-kinematics @ git+https://github.com/hujunhan/so101-kinematics@4def7c8225c2a3325cf86211347edd50c475d5a2",
+    "so101-core @ git+https://github.com/hujunhan/so101-core@b6f76e9bc757a1e4f228b8e72e1e7edb1b7a9915",
+    "so101-kinematics @ git+https://github.com/hujunhan/so101-kinematics@32ebe872c4243d4c93906bbf887c46713b7dbff9",
 ]
 
+[project.scripts]
+so101-servo = "so101_calib.servo_cli:main"
+
 [project.optional-dependencies]
-hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@f295ea29dc94bcdc005f8ea922f62362bcfab170"]
+hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@b6f76e9bc757a1e4f228b8e72e1e7edb1b7a9915"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]

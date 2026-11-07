@@ -5,7 +5,8 @@ The series plan (M0-M5) is in the so101-core README. M1 (so101-kinematics) is do
 and docs/DESIGN.md say what this repo starts from.
 
 ## Current state
-- 2026-11-06: repository set up (skeleton, pinned dependencies, smoke tests). Nothing calibrated yet.
+- 2026-11-06: repository set up. Session order agreed (S1 first). S1a tool written (`so101-servo`, dense reads
+  via so101-core b6f76e9); not yet run on the arm.
 - **Next:** agree the session plan in README with the user (it is a draft), then the open decisions in
   DECISIONS.md (ZED SDK vs UVC, the ChArUco board). S1 (servo identification) needs no camera and could start
   first.
@@ -37,6 +38,8 @@ and docs/DESIGN.md say what this repo starts from.
   releasing torque; Claude's shell cannot answer prompts) and pastes the output; Claude analyzes the logs.
   Torque-off reads (`SafeArm(...).connect(torque=False)`) Claude can run directly; they make the arm limp.
 - If the follower reports "Missing motor IDs", the servo power supply is off.
+- Always `uv sync --extra hw`: a plain `uv sync` removes LeRobot and with it opencv-python-headless, which
+  deletes files that opencv-python shares (`cv2.aruco` disappears). Fix: `uv sync --extra hw --reinstall-package opencv-python`.
 - ZED 2 is `/dev/video6` as a UVC device: 2560x720 side by side, take the left half.
 - Rendering Mermaid diagrams: `npx -y @mermaid-js/mermaid-cli@11.4.2 -p <puppeteer.json>` with
   `{"args":["--no-sandbox"]}`; Chromium's sandbox cannot start on this Ubuntu.
