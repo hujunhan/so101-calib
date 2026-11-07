@@ -4,8 +4,9 @@
     so101-cam capture wrist|zed     live window: hold the iPad board in front of the camera in many poses;
                                     views are taken automatically when the board is still and the pose is
                                     new (space: take one now; q / Esc: finish) -> captures/s3/<cam>_<time>/
-    so101-cam calibrate DIR         intrinsics -> results/s3/<cam>_intrinsics.yaml and DIR's report; for the
-                                    ZED also the right eye, the stereo pair, and the factory calibration
+    so101-cam calibrate DIR [DIR..] intrinsics (folders merged) -> results/s3/<cam>_intrinsics.yaml
+                                    and a report; for the ZED also the right eye, the stereo pair, and the
+                                    factory calibration
 
 Captures stay in the git-ignored captures/ (they show the room); results/ gets numbers only.
 """
@@ -279,14 +280,24 @@ def load_views(folder: Path, name: str) -> tuple[list[list[ch.View]], tuple[int,
     return eyes, size, files
 
 
-def calibrate_cmd(folder: Path) -> None:
+def calibrate_cmd(folders: list[Path]) -> None:
+    """Calibrate from one or more capture folders of the same camera (views merged)."""
+    folder = folders[0]
     name = folder.name.split("_")[0]
-    eyes, size, files = load_views(folder, name)
+    if any(f.name.split("_")[0] != name for f in folders):
+        raise SystemExit("all folders must be of the same camera")
+    eyes, size, files = [], None, []
+    for f in folders:
+        e, sz, fl = load_views(f, name)
+        if not e:
+            continue
+        eyes = e if not eyes else [a + b for a, b in zip(eyes, e, strict=True)]
+        size, files = sz, files + [f"{f.name}/{x}" for x in fl]
     if not eyes or len(eyes[0]) < 10:
         raise SystemExit(f"only {len(eyes[0]) if eyes else 0} usable views in {folder}; take more")
     RESULTS.mkdir(parents=True, exist_ok=True)
     labels = ["left", "right"] if name == "zed" else [name]
-    cals, md = {}, [f"# S3 intrinsics: {folder.name}", ""]
+    cals, md = {}, [f"# S3 intrinsics: {', '.join(f.name for f in folders)}", ""]
     md += [
         f"{len(files)} views with the board in every eye; ChArUco {ch.SQUARES_X} x {ch.SQUARES_Y}, "
         f"{ch.SQUARE_M * 1000:g} mm squares (iPad, {ch.IPAD_PPI:g} ppi); OpenCV, 5-parameter distortion.",
@@ -311,7 +322,10 @@ def calibrate_cmd(folder: Path) -> None:
         cv = ch.cross_validated_px(views, size)
         cals[label] = cal
         md.append(row(label, cal.intr, len(cal.used), f"{cal.rms_px:.3f}", f"{cv:.3f}", cal.std[:4]))
-    out_yaml = {"source": folder.name, "board": f"charuco {ch.SQUARES_X}x{ch.SQUARES_Y} {ch.SQUARE_M}"}
+    out_yaml = {
+        "source": [f.name for f in folders],
+        "board": f"charuco {ch.SQUARES_X}x{ch.SQUARES_Y} {ch.SQUARE_M}",
+    }
     for label, cal in cals.items():
         out_yaml[label] = cal.intr.to_dict() | {"rms_px": round(cal.rms_px, 4)}
     if name == "zed" and FACTORY.exists():
@@ -331,7 +345,7 @@ def calibrate_cmd(folder: Path) -> None:
     path = RESULTS / f"{name}_intrinsics.yaml"
     path.write_text(yaml.safe_dump(out_yaml, sort_keys=False))
     md += ["", f"Per-view RMS (px), first eye: {np.round(cals[labels[0]].per_view_px, 2).tolist()}", ""]
-    report = RESULTS / f"{folder.name}.md"
+    report = RESULTS / f"{folders[-1].name}.md"
     report.write_text("\n".join(md))
     print("\n".join(md))
     print(f"Wrote {path} and {report}")
@@ -405,18 +419,18 @@ def square_size_mm(common, L, R, Rm, t_mm) -> float:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("stage", choices=["board", "capture", "calibrate"])
-    ap.add_argument("arg", nargs="?")
+    ap.add_argument("arg", nargs="*")
     a = ap.parse_args()
     if a.stage == "board":
         print(f"Wrote {write_board_page()}")
     elif a.stage == "capture":
-        if a.arg not in CAMERAS:
+        if len(a.arg) != 1 or a.arg[0] not in CAMERAS:
             raise SystemExit("so101-cam capture wrist|zed")
-        capture(a.arg)
+        capture(a.arg[0])
     else:
         if not a.arg:
-            raise SystemExit("so101-cam calibrate captures/s3/<cam>_<time>")
-        calibrate_cmd(Path(a.arg))
+            raise SystemExit("so101-cam calibrate captures/s3/<cam>_<time> [more folders of that camera]")
+        calibrate_cmd([Path(x) for x in a.arg])
 
 
 if __name__ == "__main__":
