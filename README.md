@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** repository set up; the session plan below is a draft to agree in the first session.
+> **Status (2026-11-06):** repository set up; session order agreed (S1 first). Nothing calibrated yet.
 
 ## What M1 hands over
 
@@ -26,7 +26,7 @@ From [so101-kinematics](https://github.com/hujunhan/so101-kinematics) (README, "
   (command ~100 ms ahead, add the sag) is the direct test.
 - Cold-start IK seeding and the compromise for an unreachable pitch: open, and needed later for grasping (M5).
 
-## Plan (draft, to be agreed)
+## Plan
 
 | Session | Content | Output |
 |---|---|---|
