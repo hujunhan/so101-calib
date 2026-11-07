@@ -229,9 +229,11 @@ def analyze(path: Path) -> None:
         fits[name] = f
         r = np.corrcoef(tau[:, k], load[:, k])[0, 1] if k in st.GRAVITY_JOINTS else np.nan
         c = "-" if f["c"] is None else f"{f['c']:.2f}"
+        kk = "-" if f["k"] is None else f"{f['k']:+.2f}"
+        const = f.get("rms_resid_const_band_deg")
         rows.append(
-            f"| {name} | {c} | {f['b']:.2f} | {f['o']:+.2f} | {f['rms_before_deg']:.2f} | "
-            f"{f['rms_resid_deg']:.2f} | "
+            f"| {name} | {c} | {f['b']:+.2f} | {kk} | {f['o']:+.2f} | {f['rms_before_deg']:.2f} | "
+            f"{'-' if const is None else f'{const:.2f}'} | {f['rms_resid_deg']:.2f} | "
             f"{f['max_resid_deg']:.2f} | {'-' if np.isnan(r) else f'{r:.2f}'} |"
         )
     noise = np.degrees(z["q_std"][:, :5]).max()
@@ -243,14 +245,15 @@ def analyze(path: Path) -> None:
         f"(from +-{meta['approach_deg']:.0f} deg on "
         f"every arm joint). Largest std of a joint while held: {noise:.3f} deg.",
         "",
-        "Fit per joint: error (command - measured, deg) = c * tau + b * side + o. "
+        "Fit per joint: error (command - measured, deg) = c * tau + side * (b + k * |tau|) + o. "
         "tau = holding torque from the "
-        "URDF masses (N m); side = +1 approached from above, -1 from below. Pan and roll carry no gravity "
+        "URDF masses (N m); side = +1 approached from above, -1 from below; b + k |tau| is the (signed) "
+        "half-width of the rest band, which grows with the load. Pan and roll carry no gravity "
         "torque: error = b * side + o. r(load) = correlation of tau with the servo's Present_Load register.",
         "",
-        "| Joint | c (deg/N m) | b (deg) | o (deg) | RMS error (deg) | RMS after fit | Max after fit "
-        "| r(load) |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Joint | c (deg/N m) | b (deg) | k (deg/N m) | o (deg) | RMS error (deg) | RMS after fit, k = 0 "
+        "| RMS after fit | Max after fit | r(load) |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         *rows,
         "",
     ]
@@ -274,8 +277,8 @@ def _plot(err, tau, side, fits, out: Path) -> None:
             m = side == s
             ax.scatter(x[m], err[m, k], s=12, color=color, label=label)
             if f["c"] is not None:
-                xs = np.linspace(x.min(), x.max(), 2)
-                ax.plot(xs, f["c"] * xs + f["b"] * s + f["o"], color=color, lw=0.8)
+                xs = np.linspace(x.min(), x.max(), 20)
+                ax.plot(xs, st.predict(f, np.full_like(xs, s), xs), color=color, lw=0.8)
         ax.axhline(0, color="k", lw=0.5)
         ax.set(title=name, xlabel="gravity torque (N m)" if f["c"] is not None else "(no gravity load)")
         if k == 0:

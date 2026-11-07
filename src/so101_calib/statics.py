@@ -2,12 +2,12 @@
 
 Model (from S1a): a position servo with gain P is a torsion spring. At rest, holding a gravity torque tau,
 
-    error = commanded - measured = c * tau + s * b + o
+    error = commanded - measured = c * tau + s * (b + k * |tau|) + o
 
 c is the compliance (deg per N m, set by P), s = +1 when the joint arrived from above the target and -1 from
-below, b is the half-width of the band the servo can stop anywhere in (friction against P x error), and o a
-constant offset (expected ~0). tau comes from the URDF masses (Pinocchio), plus an optional payload at the
-tool.
+below, b + k |tau| is the half-width of the band the servo can stop anywhere in (friction against P x error;
+the S1b data show it grows with the load the gears carry, hence k), and o a constant offset (expected ~0).
+tau comes from the URDF masses (Pinocchio), plus an optional payload at the tool.
 """
 
 from dataclasses import dataclass
@@ -159,18 +159,32 @@ def route_problems(
 
 
 # -- analysis ------------------------------------------------------------------------------------------------
+def predict(f: dict, side: np.ndarray, tau: np.ndarray | None) -> np.ndarray:
+    """The fitted model's error (deg) for approaches from `side` at holding torques `tau`."""
+    side = np.asarray(side, dtype=float)
+    out = f["b"] * side + f["o"]
+    if f["c"] is not None:
+        out = out + f["c"] * tau + f["k"] * side * np.abs(tau)
+    return out
+
+
 def fit_joint(err_deg: np.ndarray, side: np.ndarray, tau: np.ndarray | None) -> dict:
-    """Least squares err = c * tau + b * side + o; without tau (pan, roll): err = b * side + o."""
-    cols = [side, np.ones_like(side)] if tau is None else [tau, side, np.ones_like(side)]
-    m = np.column_stack(cols)
-    coef, *_ = np.linalg.lstsq(m, err_deg, rcond=None)
-    resid = err_deg - m @ coef
-    out = {"rms_resid_deg": float(np.sqrt(np.mean(resid**2))), "max_resid_deg": float(np.abs(resid).max())}
+    """Least squares err = c * tau + side * (b + k * |tau|) + o; without tau (pan, roll): err = b * side + o.
+    Also the fit with a constant band (k = 0), to show what the load-dependent term adds."""
+    one = np.ones_like(side)
+    out: dict = {"rms_before_deg": float(np.sqrt(np.mean(err_deg**2)))}
     if tau is None:
-        out |= {"c": None, "b": float(coef[0]), "o": float(coef[1])}
+        (b, o), *_ = np.linalg.lstsq(np.column_stack([side, one]), err_deg, rcond=None)
+        out |= {"c": None, "k": None, "b": float(b), "o": float(o)}
     else:
-        out |= {"c": float(coef[0]), "b": float(coef[1]), "o": float(coef[2])}
-    out["rms_before_deg"] = float(np.sqrt(np.mean(err_deg**2)))
+        m0 = np.column_stack([tau, side, one])
+        coef0, *_ = np.linalg.lstsq(m0, err_deg, rcond=None)
+        out["rms_resid_const_band_deg"] = float(np.sqrt(np.mean((err_deg - m0 @ coef0) ** 2)))
+        m = np.column_stack([tau, side, side * np.abs(tau), one])
+        (c, b, k, o), *_ = np.linalg.lstsq(m, err_deg, rcond=None)
+        out |= {"c": float(c), "b": float(b), "k": float(k), "o": float(o)}
+    resid = err_deg - predict(out, side, tau)
+    out |= {"rms_resid_deg": float(np.sqrt(np.mean(resid**2))), "max_resid_deg": float(np.abs(resid).max())}
     return out
 
 

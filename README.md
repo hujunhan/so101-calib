@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-06):** S1a done (servo timing and static error at one pose, all five arm joints). Next: S1b.
+> **Status (2026-11-06):** S1a and S1b done: servo timing, and a static error model over the workspace at P = 32. Next: payload check, then S1c (compensation).
 
 ## What M1 hands over
 
@@ -93,6 +93,40 @@ Error = commanded - measured at the turning points of the sine. They do not chan
   ~0.35 deg and then drifts back. The other joints do not.
 - The sine "delay" drops from ~115 to ~78 ms at 1 Hz on pan and roll, because the band the command must cross
   first is smaller.
+
+## S1b result: static error over the workspace (P = 32)
+
+`so101-statics run` visits 16 poses chosen to spread the gravity torques (tool 12-44 cm forward, 9-51 cm up;
+`so101-statics preview` renders them to [results/s1/statics_poses.png](results/s1/statics_poses.png)). At each
+pose every arm joint approaches from 3 deg above and from 3 deg below, twice, settles, and is read for 1 s.
+The holding torque tau of each joint comes from the URDF masses (Pinocchio). Full table and plot:
+[results/s1/statics_20261106_192427.md](results/s1/statics_20261106_192427.md).
+
+Model: error (command - measured) = c * tau + side * (b + k * |tau|) + o, with side = +1 from above, -1 from below.
+
+| Joint | c (deg/N m) | Band b + k\|tau\| (deg) | o (deg) | RMS error before | after (constant band) | after |
+|---|---:|---|---:|---:|---:|---:|
+| shoulder_pan | - | 0.12 | -0.01 | 0.14 | - | 0.07 |
+| shoulder_lift | 1.65 | 0.09 + 0.68 \|tau\| | +0.10 | 0.62 | 0.18 | 0.09 |
+| elbow_flex | 2.14 | 0.03 + 1.25 \|tau\| | +0.22 | 0.66 | 0.14 | 0.08 |
+| wrist_flex | 2.14 | 0.13 + 0.66 \|tau\| | +0.11 | 0.21 | 0.06 | 0.05 |
+| wrist_roll | - | 0.14 | -0.02 | 0.15 | - | 0.05 |
+
+- **The spring model holds over the workspace.** One compliance per joint (1.65-2.14 deg/N m) and the URDF
+  torques explain the error at all 16 poses, including where the shoulder torque changes sign. What is left is
+  0.05-0.09 deg RMS, about one encoder count (0.088 deg). Each pose was held to within 0.03 deg (std).
+- **The band grows with the load.** With a constant band the fit leaves 0.14-0.18 deg RMS on lift and elbow;
+  letting the half-width grow with |tau| halves that. Gear friction grows with the torque the gears carry. On
+  the elbow the band is almost all load-dependent (0.03 + 1.25 |tau|): moving with gravity the joint nearly
+  reaches the command (slope 2.14 - 1.25 = 0.9 deg/N m), moving against it it stops short (3.4 deg/N m).
+- **Consistent with S1a.** At the S1a test pose (elbow tau = -0.43 N m) the model gives -0.71 deg center and
+  0.57 deg half-width for the elbow; the S1a sines at P = 32 gave -0.81 and 0.74 (measured while moving).
+- The constant offsets o (+0.10 to +0.22 deg) are small but not zero; a torque offset the URDF does not have
+  (cables) could cause them. Not investigated.
+- The servo's Present_Load register follows the model torque on the shoulder (r = -0.84) but only loosely on
+  the elbow and wrist (-0.41, -0.53): the model torque is the better input.
+- One temperature read of 41 C on wrist_roll was a single glitch (35 C before and after); all servos stayed at
+  32-36 C.
 
 ## Hardware
 

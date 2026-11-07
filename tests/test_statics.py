@@ -49,9 +49,10 @@ def test_fit_recovers_compliance_band_and_offset():
     rng = np.random.default_rng(0)
     tau = rng.uniform(-0.7, 0.3, 64)
     side = np.tile([1.0, -1.0], 32)
-    err = 1.6 * tau + 0.25 * side + 0.05 + rng.normal(0, 0.02, 64)
+    err = 1.6 * tau + side * (0.1 + 0.8 * np.abs(tau)) + 0.05 + rng.normal(0, 0.02, 64)
     f = st.fit_joint(err, side, tau)
-    assert f["c"] == pytest.approx(1.6, abs=0.05) and f["b"] == pytest.approx(0.25, abs=0.02)
+    assert f["c"] == pytest.approx(1.6, abs=0.05) and f["b"] == pytest.approx(0.1, abs=0.03)
+    assert f["k"] == pytest.approx(0.8, abs=0.08) and f["rms_resid_const_band_deg"] > 2 * f["rms_resid_deg"]
     assert f["o"] == pytest.approx(0.05, abs=0.02) and f["rms_resid_deg"] < 0.03
     f0 = st.fit_joint(0.1 * side, side, None)
     assert f0["c"] is None and f0["b"] == pytest.approx(0.1)
