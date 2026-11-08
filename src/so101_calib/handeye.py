@@ -192,10 +192,27 @@ def board_mm_error(fit_: Fit, samples, intr, ptr) -> np.ndarray:
 
 
 # -- choosing poses ------------------------------------------------------------------------------------------
+# Where the gripper jaws cover the wrist image (1280 x 720): a trapezoid from the jaw tips (y 450, x 560-720)
+# widening to the bottom edge (x 280-940), drawn round the jaws in the first S4 run's 24 views, with a margin.
+# Corners there are not seen; the first run lost 9 of 24 views mostly to it.
+JAW_TOP_Y, JAW_TOP_X, JAW_BOTTOM_X = 450.0, (560.0, 720.0), (280.0, 940.0)
+
+
+def under_jaws(p: np.ndarray, size: tuple[int, int] = (1280, 720)) -> np.ndarray:
+    """For image points (n, 2): inside the jaw trapezoid (scaled to the image size)."""
+    sx, sy = size[0] / 1280, size[1] / 720
+    x, y = p[:, 0] / sx, p[:, 1] / sy
+    a = np.clip((y - JAW_TOP_Y) / (720 - JAW_TOP_Y), 0, 1)
+    left = JAW_TOP_X[0] + a * (JAW_BOTTOM_X[0] - JAW_TOP_X[0])
+    right = JAW_TOP_X[1] + a * (JAW_BOTTOM_X[1] - JAW_TOP_X[1])
+    return (y >= JAW_TOP_Y) & (x >= left) & (x <= right)
+
+
 def predicted_view(
-    q, X, Y, intr: ch.Intrinsics, ptr: Pointer, margin_px: float = 40.0
+    q, X, Y, intr: ch.Intrinsics, ptr: Pointer, margin_px: float = 40.0, jaws: bool = True
 ) -> tuple[float, float, float]:
-    """For an arm pose: the fraction of board corners predicted inside the image (with a margin), the angle
+    """For an arm pose: the fraction of board corners predicted inside the image (with a margin; not under
+    the gripper jaws if jaws), the angle
     (deg) between the camera axis and the board normal, and the distance (m) to the board centre."""
     T = inv(X) @ inv(ptr.gripper(q[:5])) @ Y
     obj = ch.board().getChessboardCorners()
@@ -209,6 +226,8 @@ def predicted_view(
     inside = (
         (p[:, 0] > margin_px) & (p[:, 0] < w - margin_px) & (p[:, 1] > margin_px) & (p[:, 1] < h - margin_px)
     )
+    if jaws:
+        inside &= ~under_jaws(p, intr.size)
     normal = T[:3, 2]
     angle = float(np.degrees(np.arccos(abs(normal[2]))))
     return float(inside.mean()), angle, float(np.linalg.norm(pc.mean(0)))

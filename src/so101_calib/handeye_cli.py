@@ -47,7 +47,7 @@ STAGE_A = [
     (-6, 0, 0, 0, -20),
     (0, 5, -8, 3, 0),
 ]
-N_STAGE_B = 16
+N_STAGE_B = 20
 SPAN_B_DEG = np.array([25, 15, 20, 30, 60])  # stage B samples around the taught pose within these
 
 

@@ -66,3 +66,8 @@ def test_zed_pose_composes():
     T_zed_board = he.se3(np.array([0.1, -0.2, 0.05]), np.array([0.05, 0.02, 0.6]))
     Z = he.zed_in_base(Y_TRUE, T_zed_board)
     assert np.allclose(Z @ T_zed_board, Y_TRUE)
+
+
+def test_corners_under_the_jaws_do_not_count():
+    pts = np.array([[640.0, 600.0], [640.0, 300.0], [100.0, 700.0], [300.0, 470.0]])
+    assert he.under_jaws(pts).tolist() == [True, False, False, False]
