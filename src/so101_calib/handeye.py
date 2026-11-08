@@ -158,17 +158,34 @@ def fit(
     flat: bool = True,
     start: tuple[np.ndarray, list[np.ndarray]] | None = None,
     fixed_X_off: tuple[np.ndarray, np.ndarray] | None = None,
+    shared_z: bool = False,
+    fixed_z: float | None = None,
 ) -> Fit:
     """flat: the board lies on the table the base stands on, so only its yaw and position are free (as in
     S2, this keeps a shoulder_lift offset from hiding in a tilted board). fixed_X_off: (X, offsets in rad)
-    held fixed, only the boards fitted (to test X and the offsets on a run they were not fitted on)."""
+    held fixed, only the boards fitted (to test X and the offsets on a run they were not fitted on).
+    shared_z (flat): one height for all placements (the same iPad on the same table; S5 showed a placement
+    seen from few poses drifting 8-10 mm in height otherwise); fixed_z: that height given."""
+    shared_z = flat and (shared_z or fixed_z is not None)
     bs = boards(samples)
+    if start is None and fixed_X_off is not None:
+        # X known: each board straight from the views (no hand-eye start, which needs 3+ views)
+        Xf, offf = fixed_X_off
+        start = (
+            Xf,
+            [
+                average_pose(
+                    [ptr.gripper(s.q[:5] + offf) @ Xf @ pnp(s.view, intr) for s in samples if s.board == b]
+                )
+                for b in bs
+            ],
+        )
     X0, Y0s = start if start is not None else initial_multi(samples, intr, ptr)
     if fixed_X_off is not None:
         X0, joints = fixed_X_off[0], ()
     nx = 0 if fixed_X_off is not None else 6
     nj = len(joints)
-    ny = 4 if flat else 6
+    ny = (3 if shared_z else 4) if flat else 6
 
     def unpack(x):
         X = X0 if fixed_X_off is not None else se3(x[0:3], x[3:6])
@@ -177,6 +194,8 @@ def fit(
         Ys = []
         for k in range(len(bs)):
             y = x[nx + nj + ny * k : nx + nj + ny * (k + 1)]
+            if shared_z:
+                y = np.append(y, fixed_z if fixed_z is not None else x[-1])
             Ys.append(_flat(y) if flat else se3(y[:3], y[3:]))
         return X, Ys, off
 
@@ -189,6 +208,8 @@ def fit(
     ys = [
         np.concatenate([[flat_yaw(Y[:3, :3])], Y[:3, 3]]) if flat else np.concatenate(rvec_t(Y)) for Y in Y0s
     ]
+    if shared_z:
+        ys = [y[:3] for y in ys] + ([[np.mean([Y[2, 3] for Y in Y0s])]] if fixed_z is None else [])
     x0 = np.concatenate(([*rvec_t(X0)] if nx else []) + [np.zeros(nj)] + ys)
     r = least_squares(res, x0, x_scale="jac", loss="soft_l1", f_scale=1.0)
     X, Ys, off = unpack(r.x)
@@ -213,14 +234,16 @@ def fit(
     )
 
 
-def heldout_px(samples, intr, ptr, joints: tuple[int, ...], folds: int = 4, flat: bool = True) -> float:
+def heldout_px(
+    samples, intr, ptr, joints: tuple[int, ...], folds: int = 4, flat: bool = True, shared_z: bool = False
+) -> float:
     """RMS reprojection error of poses left out of the fit (k-fold): the fair test of whether the offsets
     help or only fit noise."""
     idx = np.arange(len(samples))
     errs = []
     for f in range(folds):
         test = idx[f::folds]
-        ft = fit([samples[i] for i in np.setdiff1d(idx, test)], intr, ptr, joints, flat)
+        ft = fit([samples[i] for i in np.setdiff1d(idx, test)], intr, ptr, joints, flat, shared_z=shared_z)
         off = np.radians(ft.offsets_deg)
         for i in test:
             e = _project(samples[i], ft.X, ft.Ys[samples[i].board], off, intr, ptr) - samples[i].view.img
@@ -228,7 +251,9 @@ def heldout_px(samples, intr, ptr, joints: tuple[int, ...], folds: int = 4, flat
     return float(np.sqrt(np.mean(errs)))
 
 
-def other_run_px(samples, intr, ptr, joints: tuple[int, ...], flat: bool = True) -> float | None:
+def other_run_px(
+    samples, intr, ptr, joints: tuple[int, ...], flat: bool = True, shared_z: bool = False
+) -> float | None:
     """Leave one run out: X and the offsets fitted on the other runs, then on the left-out run only its board
     placement is fitted (4 numbers). RMS px over all runs; None with a single run. The strictest test:
     another day's placement of the board, poses never seen."""
@@ -239,8 +264,9 @@ def other_run_px(samples, intr, ptr, joints: tuple[int, ...], flat: bool = True)
     for b in bs:
         train = [s for s in samples if s.board != b]
         test = [s for s in samples if s.board == b]
-        ft = fit(train, intr, ptr, joints, flat)
-        fb = fit(test, intr, ptr, flat=flat, fixed_X_off=(ft.X, np.radians(ft.offsets_deg)))
+        ft = fit(train, intr, ptr, joints, flat, shared_z=shared_z)
+        z = next(Y for Y in ft.Ys if Y is not None)[2, 3] if shared_z else None
+        fb = fit(test, intr, ptr, flat=flat, fixed_X_off=(ft.X, np.radians(ft.offsets_deg)), fixed_z=z)
         errs.append(fb.per_sample_px**2)
     return float(np.sqrt(np.mean(np.concatenate(errs))))
 

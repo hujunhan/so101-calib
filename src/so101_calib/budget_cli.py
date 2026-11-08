@@ -237,20 +237,17 @@ def placements(dirs: list[Path]) -> list[Path]:
     return out
 
 
-def wrist_board(folder: Path, cal: Calib, intr, ptr) -> tuple[he.Fit, list[he.Sample]]:
-    """The board of one placement through the wrist chain, X and the offsets held fixed."""
-    meta = json.loads((folder / "samples.json").read_text())
-    jm_off = np.asarray(meta.get("joint_map_offset_rad", np.zeros(6)), float)
+def wrist_boards(folders: list[Path], cal: Calib, intr, ptr) -> tuple[he.Fit, list[he.Sample]]:
+    """All placements through the wrist chain at once, X and the offsets held fixed, one table height."""
     samples = []
-    for s in load_samples(folder, meta["samples"], intr):
-        s.q = s.q.copy()
-        s.q[:5] -= jm_off[:5]  # back to LeRobot readings, as the offsets are
-        samples.append(s)
-    if len(samples) < 2:
-        raise SystemExit(f"{folder}: only {len(samples)} wrist views with the board")
-    Y0 = he.average_pose([ptr.gripper(s.q[:5] + cal.off) @ cal.X @ he.pnp(s.view, intr) for s in samples])
-    f = he.fit(samples, intr, ptr, start=(cal.X, [bu.flatten(Y0)]), fixed_X_off=(cal.X, cal.off))
-    return f, samples
+    for b, folder in enumerate(folders):
+        meta = json.loads((folder / "samples.json").read_text())
+        jm_off = np.asarray(meta.get("joint_map_offset_rad", np.zeros(6)), float)
+        for s in load_samples(folder, meta["samples"], intr, b):
+            s.q = s.q.copy()
+            s.q[:5] -= jm_off[:5]  # back to LeRobot readings, as the offsets are
+            samples.append(s)
+    return he.fit(samples, intr, ptr, fixed_X_off=(cal.X, cal.off), shared_z=True), samples
 
 
 def ik_tool(
@@ -321,23 +318,20 @@ def fit_cmd(dirs: list[Path], stack_mm: float | None) -> None:
     folders = placements(dirs)
     if len(folders) < 3:
         raise SystemExit("need 3+ placements")
-    names, Ys, zv, fits, wviews = [], [], [], [], []
-    for fo in folders:
-        f, samples = wrist_board(fo, cal, intr, ptr)
-        views = zed_views([cv2.imread(str(p)) for p in sorted(fo.glob("zed_*.png"))])
-        if not views:
-            print(f"{fo}: the ZED did not see the board; left out")
-            continue
-        names.append(fo.name if fo.parent.name != "s4" else f"S4 {fo.name[-6:]}")
-        Ys.append(f.Ys[0])
-        zv.append(views)
-        fits.append(f)
-        wviews.append(samples)
+    folders = [
+        fo for fo in folders if zed_views([cv2.imread(str(p)) for p in sorted(fo.glob("zed_before_*.png"))])
+    ]
+    wf, wsamples = wrist_boards(folders, cal, intr, ptr)
+    names = [fo.name if fo.parent.name != "s4" else f"S4 {fo.name[-6:]}" for fo in folders]
+    Ys = [wf.Ys[b] for b in range(len(folders))]
+    zv = [zed_views([cv2.imread(str(p)) for p in sorted(fo.glob("zed_*.png"))]) for fo in folders]
+    wviews = [[s for s in wsamples if s.board == b] for b in range(len(folders))]
+    per_view = {id(s): e for s, e in zip(wsamples, wf.per_sample_px, strict=True)}
     Z, zrms = he.zed_fit([(v, Y) for vs, Y in zip(zv, Ys, strict=True) for v in vs], zi)
     _, loo = bu.zed_leave_one_out(zv, Ys, zi)
     inside = [bu.ray_plane_errors_mm(vs, Y, zi, Z) for vs, Y in zip(zv, Ys, strict=True)]
     mmpx = [bu.mm_per_px(Y, zi, Z) for Y in Ys]
-    kin = np.concatenate([he.board_mm_error(f, s, intr, ptr) for f, s in zip(fits, wviews, strict=True)])
+    kin = he.board_mm_error(wf, wsamples, intr, ptr)
 
     # servos and kinematics at the pointing poses: the tool 1 cm above each board centre
     model, grav = cp.ServoModel.load(), st.Gravity()
@@ -376,7 +370,8 @@ def fit_cmd(dirs: list[Path], stack_mm: float | None) -> None:
         c = bu.board_centre(Ys[i]) * 100
         e = loo[i]
         md.append(
-            f"| {name} | ({c[0]:.1f}, {c[1]:+.1f}) | {len(wviews[i])} | {fits[i].rms_px:.2f} | "
+            f"| {name} | ({c[0]:.1f}, {c[1]:+.1f}) | {len(wviews[i])} | "
+            f"{np.sqrt(np.mean([per_view[id(v)] ** 2 for v in wviews[i]])):.2f} | "
             f"{sum(len(v.ids) for v in zv[i])} | {mmpx[i]:.2f} | "
             f"{rms(e):.2f} / {np.linalg.norm(e, axis=1).max():.2f} "
             f"| {e.mean(0)[0]:+.2f}, {e.mean(0)[1]:+.2f} | {rms(inside[i]):.2f} |"

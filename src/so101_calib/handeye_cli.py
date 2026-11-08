@@ -374,9 +374,11 @@ def fit_cmd(folders: list[Path], stack_mm: float | None = None) -> None:
             s.q = s.q.copy()
             s.q[:5] -= jm_off[:5]
             samples.append(s)
-    fits = {m: he.fit(samples, intr, ptr, j) for m, j in he.MODELS.items()}
-    held = {m: he.heldout_px(samples, intr, ptr, j) for m, j in he.MODELS.items()}
-    runs = {m: he.other_run_px(samples, intr, ptr, j) for m, j in he.MODELS.items()}
+    # one table: every placement of the iPad at the same height
+    sz = len(folders) > 1
+    fits = {m: he.fit(samples, intr, ptr, j, shared_z=sz) for m, j in he.MODELS.items()}
+    held = {m: he.heldout_px(samples, intr, ptr, j, shared_z=sz) for m, j in he.MODELS.items()}
+    runs = {m: he.other_run_px(samples, intr, ptr, j, shared_z=sz) for m, j in he.MODELS.items()}
     mm = {m: he.board_mm_error(fits[m], samples, intr, ptr) for m in he.MODELS}
     crit = runs if len(folders) > 1 else held
     pick = choose(crit)
