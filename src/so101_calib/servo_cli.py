@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 from so101_core.arm import SafeArm
 from so101_core.config import DeviceConfig, JointMap
-from so101_core.model import ARM_JOINTS, JOINTS
+from so101_core.model import ARM_JOINTS, JOINTS, urdf_limits
 from so101_core.safety import SafetyLayer
 from so101_kinematics.models import PinArm
 
@@ -321,7 +321,7 @@ def main() -> None:
     args = p.parse_args()
     if args.cmd == "plan":
         jm = JointMap.load()
-        safety = SafetyLayer()
+        safety = SafetyLayer(limits=jm.model_limits(*urdf_limits()))  # as SafeArm builds it
         joints = list(range(len(ARM_JOINTS)))
         q_from = jm.rest if jm.rest is not None else np.zeros(len(JOINTS))
         q0, lines = describe_plan(safety, q_from, joints)

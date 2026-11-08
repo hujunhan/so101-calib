@@ -18,8 +18,10 @@ and docs/DESIGN.md say what this repo starts from.
 - S4 done (README), two runs fitted together: elbow offset -7.28 deg is the only one kept (lift/wrist trade
   against X; per-run fits swung by 3 deg). results/s4/handeye.yaml: X, a board per run, ZED from both placements,
   table_z_m. Confirmed by S2's touches (8 -> 4.5 mm) and the table height (URDF base bottom -2.4 mm vs -1.4 / -3.1).
-  ZED pose ~2.6 mm on the table (one view per placement); S5's extra placements will tighten it. Not written into
-  so101-core's joint map (user to decide). The user is rebuilding the workspace (light box, backdrop): then
+  ZED pose ~2.6 mm on the table (one view per placement); S5's extra placements will tighten it. Written into
+  so101-core's joint map (elbow -0.127077 rad, rest shifted; SafeArm limits also keep readings in range, elbow max
+  84.5 deg); so101-kinematics and so101-calib pins bumped. handeye.yaml offsets are relative to LeRobot readings
+  (whole zero error): code on SafeArm angles adds only (handeye offset - joint map offset). The user is rebuilding the workspace (light box, backdrop): then
   re-locate the ZED (command not written yet). iPad ~50 % or the ZED saturates; avoid overhead reflections.
 - **Next:** S5 (error budget; click-to-point).
 

@@ -228,7 +228,13 @@ def run() -> None:
     intr, ptr = wrist_intrinsics(), Pointer()
     out = CAPTURES / datetime.now().strftime("%Y%m%d_%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
-    meta: dict = {"date": datetime.now().isoformat(timespec="seconds"), "position_p": SERVO_P, "samples": []}
+    meta: dict = {
+        "date": datetime.now().isoformat(timespec="seconds"),
+        "position_p": SERVO_P,
+        # q below = LeRobot reading + this (so101-core's joint map); the fit works on the readings
+        "joint_map_offset_rad": jm.offset.tolist(),
+        "samples": [],
+    }
     print(
         "The iPad (board full screen, brightness ~50 %) lies flat on the table about 25 cm in front of the\n"
         "arm, and must not move until the end. The arm is at rest."
@@ -361,7 +367,13 @@ def fit_cmd(folders: list[Path], stack_mm: float | None = None) -> None:
     samples = []
     for b, folder in enumerate(folders):
         meta = json.loads((folder / "samples.json").read_text())
-        samples += load_samples(folder, meta["samples"], intr, b)
+        # back to LeRobot readings (runs before 2026-11-07 22:30 had no offset in the joint map), so the
+        # fitted offsets are the whole zero error, the numbers the joint map should hold
+        jm_off = np.asarray(meta.get("joint_map_offset_rad", np.zeros(6)), float)
+        for s in load_samples(folder, meta["samples"], intr, b):
+            s.q = s.q.copy()
+            s.q[:5] -= jm_off[:5]
+            samples.append(s)
     fits = {m: he.fit(samples, intr, ptr, j) for m, j in he.MODELS.items()}
     held = {m: he.heldout_px(samples, intr, ptr, j) for m, j in he.MODELS.items()}
     runs = {m: he.other_run_px(samples, intr, ptr, j) for m, j in he.MODELS.items()}
@@ -401,6 +413,9 @@ def fit_cmd(folders: list[Path], stack_mm: float | None = None) -> None:
     ]
     out = {
         "source": [fo.name for fo in folders],
+        # model angle = LeRobot reading + these; so101-core's joint map holds the elbow's since 2026-11-07, so
+        # code reading SafeArm (joint map applied) adds only the difference
+        "offsets_relative_to": "LeRobot readings",
         "offset_model": pick,
         "joint_offsets_deg": {
             j: round(float(f.offsets_deg[i]), 3)

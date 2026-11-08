@@ -311,7 +311,10 @@ the board refitted on the other). Report: [handeye_20261107_221446_x2](results/s
 - Usable views: 15 / 24 and 19 / 28. The jaws cover the lower centre of the wrist image (now in the pose
   planner) and the iPad glass reflects the room at oblique views. The iPad must be dimmed (~50 %) or the ZED
   saturates it.
-- Not yet applied to so101-core's joint map: M2's own code uses `results/s4/handeye.yaml`.
+- **Written into so101-core's joint map** (2026-11-07): `elbow_flex` offset -0.127077 rad, rest pose shifted with
+  it; `SafeArm` now also keeps the LeRobot reading inside the URDF range (the elbow's upper limit drops from 91.8
+  to 84.5 deg). LeRobot's calibration and its recordings are unchanged. `so101-handeye` records the joint map's
+  offsets with each run and fits on the readings, so `handeye.yaml`'s offsets are always the whole zero error.
 
 ## Hardware
 

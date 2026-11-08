@@ -13,8 +13,8 @@ dependencies = [
     "opencv-python>=4.8,<5",  # ChArUco, calibration, windows; same major as LeRobot's headless build (shared files)
     "matplotlib>=3.8",
     "pyyaml>=6.0",
-    "so101-core @ git+https://github.com/hujunhan/so101-core@c38261bc456634f5d529626ee7f53e33ae157fe2",
-    "so101-kinematics @ git+https://github.com/hujunhan/so101-kinematics@10d4c91767c1f592edae38506b6b5b46a4cc3fa9",
+    "so101-core @ git+https://github.com/hujunhan/so101-core@534b1e91f488768ea92d1f92bbf6cc3459d00bb7",
+    "so101-kinematics @ git+https://github.com/hujunhan/so101-kinematics@f2f9de8530313b6c97eb0948e3e1537e47b145c8",
 ]
 
 [project.scripts]
@@ -26,7 +26,7 @@ so101-cam = "so101_calib.cam_cli:main"
 so101-handeye = "so101_calib.handeye_cli:main"
 
 [project.optional-dependencies]
-hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@c38261bc456634f5d529626ee7f53e33ae157fe2"]
+hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@534b1e91f488768ea92d1f92bbf6cc3459d00bb7"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]

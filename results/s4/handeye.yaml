@@ -1,6 +1,7 @@
 source:
 - '20261107_215410'
 - '20261107_221446'
+offsets_relative_to: LeRobot readings
 offset_model: elbow
 joint_offsets_deg:
   shoulder_pan: 0.0
