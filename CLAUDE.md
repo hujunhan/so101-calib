@@ -24,11 +24,13 @@ and docs/DESIGN.md say what this repo starts from.
   (whole zero error): code on SafeArm angles adds only (handeye offset - joint map offset). Checked on the arm
   with `so101-zero run`: forearm level at the model zero, pointing up at LeRobot's zero. The user is rebuilding the workspace (light box, backdrop): then
   re-locate the ZED (command not written yet). iPad ~50 % or the ZED saturates; avoid overhead reflections.
-- **Next:** S5, `so101-budget` written: `plan` (preview), `run` (5 iPad placements on outlines drawn in the ZED
-  view; the arm looks at each from up to 5 collision-checked poses), `fit DIR [S4 dirs] --stack-mm 11` (ZED refit to
-  all placements, leave-one-placement-out ray-plane errors vs the wrist chain, budget, heat map -> results/s5/),
-  `point [--table]` (click in the ZED view; tool point 1 cm above, servo-compensated). The user runs `run`, then
-  Claude runs `fit` (include the two S4 runs if the ZED has not moved), then the user tries `point`.
+- S5 done (README): ZED consistent (~1.3 mm between placements); arm kinematics fine near S4's region, several mm
+  off in far poses (6 models tried, only camera-mount tilt helps partly; unresolved). Fits share one table height.
+  Demo `so101-budget point` works (fixed jaw tip; uses S4's ZED pose because results/s5/budget.yaml is absent;
+  the wide run is kept as results/s5/budget_wide_*). Shaking near rest: holding still is exact; moving <=0.15 deg;
+  `so101-park` has the tests and a standing park pose (not used by the tools yet).
+- **Next:** S6 (write-up: README, docs/DESIGN.md). Optional: re-collect S5 with working poses only (gripper down,
+  15-25 cm) for a working-region budget; lift between demo points.
 
 - For M3 (noted 2026-11-07): the ZED is wide (~100 deg H as calibrated, 110 nominal); the workspace fills a small
   part of the image and the room (people, a cat) the rest. Plan: FHD per eye (factory parameters exist) and a fixed
