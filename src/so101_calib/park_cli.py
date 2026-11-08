@@ -2,8 +2,8 @@
 
 Folded at rest, the arm's centre of mass sits almost over the shoulder axis: gravity loads shoulder_lift with
 ~0.03 N m, so the gears sit in their backlash with nothing pressing them to one side, and at P = 32 the
-servo can hunt there. Standing up (lift -90, elbow -30, wrist 10: upper arm back, forearm up, the tool ~17 cm out and
-~41 cm up, off the table's workspace) loads the shoulder with ~0.6 N m, always the same way.
+servo can hunt there. Standing up (lift -90, elbow -30, wrist 10: upper arm back, forearm up, the tool
+~17 cm out and ~41 cm up, off the table's workspace) loads the shoulder with ~0.6 N m, always the same way.
 
     so101-park plan     no hardware: the route rest -> park -> rest, and the loads
     so101-park test     POWERED: hold 6 s at rest, 6 s at the park pose, 6 s at rest again, reading the
