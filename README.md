@@ -392,8 +392,11 @@ corners, each placement left out of the ZED fit. Record: [budget_wide_20261107_2
   table's height, the offsets relative to LeRobot readings), the elbow offset in so101-core's joint map,
   `results/s1/servo_model.json` for static compensation. How to use them: [docs/DESIGN.md](docs/DESIGN.md#8-how-later-repos-use-it).
 - **The ZED pose is tied to the current setup.** The workspace is being rebuilt (light box, backdrop): after
-  that the ZED must be located again (a short hand-eye re-run with the wrist camera's mount fixed; the command
-  is not written). M3 plans FHD per eye and a fixed crop (the ZED sees ~100 deg, mostly room).
+  that the ZED must be located again: `so101-handeye relocate` (added 2026-11-08 for M3) teaches one pose over
+  the board, takes 8 wrist views, fits the board with S4's camera mount and locates the ZED (FHD by default)
+  -> `results/relocate/<time>.yaml`. Checked on S4's own captures: the board within 0.7 mm of the full fit;
+  the ZED from one placement within 4-9 mm and 0.5-1.2 deg of the two-placement pose, which moves table points
+  in a 20 x 15 cm region by 0.7-1.1 mm median (max 1.9 mm). M3 plans FHD per eye and a fixed crop.
 - **Far poses are several mm off** (S5): keep camera-guided motion in the working region, or measure the
   error there (re-run S5 with working poses only: gripper down, 15-25 cm from the board).
 - **Open from M1**: cold-start IK seeding; the compromise when the asked pitch is unreachable.

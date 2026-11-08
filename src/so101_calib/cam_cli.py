@@ -34,6 +34,7 @@ CAMERAS = {
     # path key in so101-core devices.yaml, fourcc, size
     "wrist": ("wrist", "MJPG", (1280, 720)),
     "zed": ("zed", "YUYV", (2560, 720)),
+    "zed_fhd": ("zed", "YUYV", (3840, 1080)),  # M3 records at FHD per eye
 }
 
 

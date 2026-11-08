@@ -6,6 +6,11 @@ The iPad board (tools/ipad_charuco.html) lies still on the table in front of the
                                     sees it (space); then torque on (P = SERVO_P) and the arm moves itself
                                     through ~22 poses around it (SafeArm, slow, collision-checked with the
                                     iPad), taking a wrist image at each -> captures/s4/<time>/
+    so101-handeye relocate          after a workspace change (the ZED moved, the wrist camera's mount did
+                                    not): teach one pose over the board, the arm takes 8 views around it,
+                                    the board is fitted with the camera mount from results/s4/handeye.yaml,
+                                    and the ZED is located through it (at FHD by default) ->
+                                    results/relocate/<time>.yaml
     so101-handeye fit DIR [DIR..]   hand-eye of all runs together (one board placement per run), joint offset
                                     models compared on held-out views and on left-out runs, the ZED in the
                                     base frame -> results/s4/handeye.yaml and a report. --stack-mm: the
@@ -57,8 +62,8 @@ def wrist_intrinsics() -> ch.Intrinsics:
     return ch.Intrinsics.from_dict(yaml.safe_load(WRIST_YAML.read_text())["wrist"])
 
 
-def zed_left() -> ch.Intrinsics:
-    return ch.read_zed_conf(cam_cli.FACTORY, "HD")["left"]
+def zed_left(mode: str = "HD") -> ch.Intrinsics:
+    return ch.read_zed_conf(cam_cli.FACTORY, mode)["left"]
 
 
 class Grabber:
@@ -105,9 +110,9 @@ def show(win: str, img: np.ndarray, view: ch.View | None, text: str) -> int:
     return cv2.waitKey(1) & 0xFF
 
 
-def zed_board(frames: list[np.ndarray]) -> tuple[np.ndarray | None, int]:
+def zed_board(frames: list[np.ndarray], mode: str = "HD") -> tuple[np.ndarray | None, int]:
     """The board in the ZED left eye's frame (PnP with the factory intrinsics), averaged over frames."""
-    det, intr, Ts = ch.detector(), zed_left(), []
+    det, intr, Ts = ch.detector(), zed_left(mode), []
     for f in frames:
         v = ch.detect(cv2.cvtColor(cam_cli.halves(f, "zed")[0], cv2.COLOR_BGR2GRAY), det)
         if v is not None and len(v.ids) >= 16:
@@ -316,6 +321,155 @@ def run() -> None:
     print(f"\nSaved {out}. Fit with: uv run so101-handeye fit {out}")
 
 
+# -- re-locating the ZED after a workspace change ----------------------------------------------------------
+RELOCATE = Path("results/relocate")
+RELOCATE_MAX_RMS_PX = 8.0  # S4's fit left ~4 px (the far-pose model error); twice that: the mount moved?
+
+
+def relocate(zed_mode: str = "FHD", stack_mm: float | None = None) -> None:
+    """One board placement, the wrist camera's mount and the joint map as calibrated in S4."""
+    from so101_core.arm import SafeArm
+    from so101_core.config import DeviceConfig, JointMap
+
+    devices, jm = DeviceConfig.load(), JointMap.load()
+    intr = wrist_intrinsics()
+    zed_cam = {"HD": "zed", "FHD": "zed_fhd"}[zed_mode]
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = CAPTURES / f"relocate_{stamp}"
+    out.mkdir(parents=True, exist_ok=True)
+    print(
+        "Re-locating the ZED. The iPad (board full screen, brightness ~50 %) lies flat on the table where\n"
+        "the cube will be, in view of the ZED, and must not move until the end. The arm is at rest."
+    )
+    wrist, zed = Grabber("wrist"), Grabber(zed_cam)
+    samples: list[dict] = []
+    try:
+        before = [zed.latest(after=time.perf_counter()) for _ in range(10)]
+        Tb, n = zed_board(before, zed_mode)
+        if Tb is None:
+            raise SystemExit("The ZED does not see the board: move the iPad into its view.")
+        for i, f in enumerate(before[:3]):
+            cv2.imwrite(str(out / f"zed_before_{i}.png"), f)
+        print(f"ZED sees the board ({n} frames), {np.linalg.norm(Tb[:3, 3]) * 100:.0f} cm away.")
+
+        arm = SafeArm(devices, joint_map=jm, position_p=SERVO_P)
+        with arm.connect(torque=False):
+            q0 = teach(arm, wrist, intr)
+        if q0 is None:
+            return
+        print("Keep holding the arm: torque goes on now.")
+        arm = SafeArm(devices, joint_map=jm, position_p=SERVO_P)
+        det = ch.detector()
+        with arm.connect(torque=True):
+            print("Holding. You can let go.")
+            if not ask_yes(
+                f"The arm will MOVE (slowly) through {len(STAGE_A)} poses around this one. Stay next to it."
+            ):
+                return
+            for k, d in enumerate(STAGE_A):
+                q = q0.copy()
+                q[:5] += np.radians(d)
+                s = capture_at(arm, arm.safety.clip(q)[0], wrist, out, k, det)
+                if s:
+                    samples.append(s)
+            arm.move_to(q0, speed_rad_s=MOVE_SPEED)
+            print("Back at the taught pose. Now support the arm: torque goes off next; put it back to rest.")
+        input("\n>>> Arm at rest and out of the ZED's view of the iPad? Press Enter. ")
+        after = [zed.latest(after=time.perf_counter()) for _ in range(10)]
+        for i, f in enumerate(after[:3]):
+            cv2.imwrite(str(out / f"zed_after_{i}.png"), f)
+    finally:
+        wrist.close()
+        zed.close()
+        cv2.destroyAllWindows()
+    meta = {
+        "date": stamp,
+        "position_p": SERVO_P,
+        "zed_mode": zed_mode,
+        "joint_map_offset_rad": jm.offset.tolist(),
+    }
+    meta["samples"] = [
+        {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in x.items()} for x in samples
+    ]
+    (out / "samples.json").write_text(json.dumps(meta, indent=1))
+    relocate_fit(out, stack_mm)
+
+
+def relocate_fit(folder: Path, stack_mm: float | None = None) -> dict:
+    """Fit a relocate capture: the board with the S4 camera mount, then the ZED through the board."""
+    h = yaml.safe_load((RESULTS / "handeye.yaml").read_text())
+    X = np.asarray(h["T_gripper_wristcam"], float)
+    meta = json.loads((folder / "samples.json").read_text())
+    mode = meta.get("zed_mode", "HD")  # S4's own runs were at HD
+    intr, ptr = wrist_intrinsics(), Pointer()
+    views = load_samples(folder, [s for s in meta["samples"] if s["corners"] >= 12], intr)
+    # model angles = LeRobot readings + S4's offsets, whatever joint map the capture was taken with
+    saved_off = np.asarray(meta.get("joint_map_offset_rad", np.zeros(6)), float)[:5]
+    s4_off = np.radians([h["joint_offsets_deg"][j] for j in list(h["joint_offsets_deg"])])
+    for v in views:
+        v.q = v.q.copy()
+        v.q[:5] += s4_off - saved_off
+    if len(views) < 4:
+        raise SystemExit(f"Only {len(views)} wrist views see the board; teach a pose that sees all of it.")
+    Y, rms, per = he.fit_board(views, X, intr, ptr)
+    zframes = [cv2.imread(str(p)) for p in sorted(folder.glob("zed_*.png"))]
+    zviews = zed_views_mode(zframes, mode)
+    if not zviews:
+        raise SystemExit("No ZED view of the board was saved.")
+    Z, zrms = he.zed_fit([(v, Y) for v in zviews], zed_left(mode))
+    zb, _ = zed_board([cv2.imread(str(p)) for p in sorted(folder.glob("zed_before_*.png"))], mode)
+    za, _ = zed_board([cv2.imread(str(p)) for p in sorted(folder.glob("zed_after_*.png"))], mode)
+    moved = float(np.linalg.norm(za[:3, 3] - zb[:3, 3]) * 1000) if zb is not None and za is not None else None
+    res = {
+        "source": folder.name,
+        "zed_mode": mode,
+        "camera_mount_from": h["source"],
+        "wrist_views": len(views),
+        "wrist_fit_rms_px": round(rms, 2),
+        "wrist_fit_max_view_px": round(float(per.max()), 2),
+        "board_moved_mm": None if moved is None else round(moved, 1),
+        "zed_rms_px": round(zrms, 2),
+        "T_base_board": np.round(Y, 6).tolist(),
+        "T_base_zed_left": np.round(Z, 6).tolist(),
+    }
+    if stack_mm is not None:
+        res["table_z_m"] = round(float(Y[2, 3] - stack_mm / 1000), 5)
+    print(
+        f"{len(views)} wrist views, board fitted with the S4 camera mount: {rms:.2f} px RMS "
+        f"(worst view {per.max():.2f} px; S4 left ~4 px)."
+    )
+    if rms > RELOCATE_MAX_RMS_PX:
+        print(
+            f"WARNING: above {RELOCATE_MAX_RMS_PX:g} px. Has the wrist camera's mount moved since S4? "
+            "Then run the full `so101-handeye run` and `fit` instead."
+        )
+    print(f"Board centre {np.round(board_centre(Y) * 100, 1).tolist()} cm in the base frame.")
+    if moved is not None:
+        print(f"ZED: the board moved {moved:.1f} mm between before and after (should be ~0).")
+    print(
+        f"ZED left eye ({mode}) at {np.round(Z[:3, 3] * 100, 1).tolist()} cm in the base frame,"
+        f" looking along {np.round(Z[:3, 2], 2).tolist()} ({zrms:.2f} px)."
+    )
+    if "table_z_m" in res:
+        print(f"Table at {res['table_z_m'] * 1000:+.1f} mm in the base frame (board - {stack_mm:g} mm).")
+    RELOCATE.mkdir(parents=True, exist_ok=True)
+    path = RELOCATE / f"{folder.name.removeprefix('relocate_')}.yaml"
+    path.write_text(yaml.safe_dump(res, sort_keys=False))
+    print(f"Wrote {path}")
+    return res
+
+
+def zed_views_mode(frames: list[np.ndarray], mode: str) -> list[ch.View]:
+    det, out = ch.detector(), []
+    for f in frames:
+        if f is None:
+            continue
+        v = ch.detect(cv2.cvtColor(cam_cli.halves(f, "zed")[0], cv2.COLOR_BGR2GRAY), det)
+        if v is not None and len(v.ids) >= 16:
+            out.append(v)
+    return out
+
+
 # -- the fit -------------------------------------------------------------------------------------------------
 def load_samples(folder: Path, samples: list[dict], intr, board: int = 0) -> list[he.Sample]:
     det, out = ch.detector(), []
@@ -471,7 +625,8 @@ def fit_cmd(folders: list[Path], stack_mm: float | None = None) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("stage", choices=["zed-view", "run", "fit"])
+    ap.add_argument("stage", choices=["zed-view", "run", "fit", "relocate", "relocate-fit"])
+    ap.add_argument("--zed-mode", default="FHD", choices=["HD", "FHD"], help="relocate: ZED resolution")
     ap.add_argument("dirs", nargs="*", type=Path)
     ap.add_argument("--stack-mm", type=float, help="iPad + case thickness (mm), for the table height check")
     a = ap.parse_args()
@@ -479,6 +634,12 @@ def main() -> None:
         zed_view()
     elif a.stage == "run":
         run()
+    elif a.stage == "relocate":
+        relocate(a.zed_mode, a.stack_mm)
+    elif a.stage == "relocate-fit":
+        if len(a.dirs) != 1:
+            raise SystemExit("so101-handeye relocate-fit captures/s4/relocate_<time>")
+        relocate_fit(a.dirs[0], a.stack_mm)
     else:
         if not a.dirs:
             raise SystemExit("so101-handeye fit captures/s4/<time> [captures/s4/<time> ..]")

@@ -272,7 +272,7 @@ p = ray_plane(np.array([[u, v]]), zed_left(), Z, table_z)[0]
 - **The demo was not measured with a ruler**; the joints put the tip within 0.6 mm of the target, and by eye it
   sat on the clicked corner.
 - **The ZED pose** is from S4's two placements; it holds only while neither the ZED nor the arm moves. The
-  workspace is being rebuilt (light box, backdrop): re-locating the ZED needs a short re-run (not written).
+  workspace is being rebuilt (light box, backdrop): re-locating the ZED is `so101-handeye relocate` (one board placement, S4's camera mount; README).
 - The demo refuses moves whose straight joint path dips within 2 cm of the table; a lift between points would
   fix it.
 - Moving to rest, the shoulder oscillates ~0.1 deg near zero gravity load; holding still is exact. The

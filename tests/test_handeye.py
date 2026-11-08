@@ -117,3 +117,25 @@ def test_zed_from_two_placements():
         views.append((ch.View(np.arange(len(obj)), img, obj), Y))
     T, rms = he.zed_fit(views, zed)
     assert rms < 0.5 and np.allclose(T[:3, 3], Z[:3, 3], atol=0.002)
+
+
+def test_relocate_fits_the_board_with_a_known_mount():
+    # After a workspace change: the camera mount X and the joint offsets are known, the board is new.
+    rng = np.random.default_rng(3)
+    Y_new = np.eye(4)
+    Y_new[:3, :3] = he.rot_z(np.radians(-20.0)) @ he.FLAT_R
+    Y_new[:3, 3] = [0.25, -0.05, 0.011]
+    views = simulate(8, rng, Y=Y_new)
+    for s in views:  # model angles = readings + offsets (the joint map applied, as SafeArm reads)
+        s.q = s.q.copy()
+        s.q[:5] += np.radians(OFF)
+    Y, rms, per = he.fit_board(views, X_TRUE, INTR, PTR)
+    assert rms < 2.5 and len(per) == 8
+    assert np.allclose(Y[:3, 3], Y_new[:3, 3], atol=0.002)
+    assert np.degrees(np.arccos((np.trace(Y[:3, :3].T @ Y_new[:3, :3]) - 1) / 2)) < 0.3
+
+    # A camera mount 1 cm off shows up as a much larger error.
+    X_bad = X_TRUE.copy()
+    X_bad[:3, 3] += [0.01, 0.0, 0.0]
+    _, rms_bad, _ = he.fit_board(views, X_bad, INTR, PTR)
+    assert rms_bad > 2 * rms

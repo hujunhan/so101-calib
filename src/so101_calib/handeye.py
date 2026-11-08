@@ -128,6 +128,27 @@ def _project(sample: Sample, X, Y, off, intr, ptr) -> np.ndarray:
     return p.reshape(-1, 2)
 
 
+def fit_board(
+    samples: list[Sample], X: np.ndarray, intr: ch.Intrinsics, ptr: Pointer
+) -> tuple[np.ndarray, float, np.ndarray]:
+    """The board in the base frame with the camera mount X known (re-locating after a workspace change):
+    6 parameters, all pixels, started from the mean of G X T_cam_board. The q are model angles (offsets
+    applied). Returns (Y, RMS px, per-sample RMS px)."""
+    Y0 = average_pose([ptr.gripper(s.q[:5]) @ X @ pnp(s.view, intr) for s in samples])
+    off = np.zeros(5)
+
+    def res(x):
+        Y = se3(x[:3], x[3:])
+        return np.concatenate([(_project(s, X, Y, off, intr, ptr) - s.view.img).ravel() for s in samples])
+
+    r = least_squares(res, np.concatenate(rvec_t(Y0)), x_scale="jac", loss="soft_l1")
+    Y = se3(r.x[:3], r.x[3:])
+    per = np.array(
+        [np.sqrt(((_project(s, X, Y, off, intr, ptr) - s.view.img) ** 2).sum(1).mean()) for s in samples]
+    )
+    return Y, float(np.sqrt((r.fun**2).mean() * 2)), per
+
+
 # A board lying face up on the table: its z axis (into the board) points down, -z of the base. Its rotation is
 # then FLAT_R rotated about the vertical by a yaw.
 FLAT_R = np.array([[0.0, -1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])
