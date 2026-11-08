@@ -137,3 +137,36 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   run it was not fitted on as well as all three (4.7 px against 19.4 px with none), is known to 0.1 deg, and
   S2's touch data and the table height agree with it.
 - **Options:** all three offsets (first run's choice); elbow only; write the offset into so101-core now.
+
+## 2026-11-07: the elbow offset goes into so101-core's joint map
+
+- **Decided (user):** write elbow_flex offset -0.127077 rad into so101-core's `joint_map.yaml`, shift the rest
+  pose by the same amount, and make `SafeArm`'s limits the intersection of the URDF range in model angles and in
+  LeRobot readings (`JointMap.model_limits`). Checked on the arm with `so101-zero`: at the model's zero the
+  forearm is level, at LeRobot's zero it points up.
+- **Why:** every later program gets the corrected kinematics; LeRobot's calibration and its recordings stay as
+  they are. Without the reading-aware limits the offset would have let the elbow be commanded 2.5 deg past its
+  calibrated range.
+- **Options:** joint map now; keep it in M2's results only; recalibrate LeRobot (gives the same zero: the range
+  is asymmetric).
+
+## 2026-11-07: S5 shares one table height; far-pose error left open; demo instead of more data
+
+- **Decided:** all wrist-chain fits share one table height across placements. The S5 run with wide wrist views
+  is kept as a record (`results/s5/budget_wide_*`); the demo uses S4's ZED pose. After six models failed to
+  explain the far-pose error, the user chose to try the click-to-point demo rather than re-collect S5 with
+  working poses only or investigate further.
+- **Why:** two placements seen from few poses had drifted 8-10 mm in height on their own. The far-pose error
+  (several mm, shoulder folded back or camera sideways) is outside the poses M3 and M5 use; the demo near the
+  calibrated region put the tip within 0.6 mm by the joints and on the corner by eye.
+- **Options:** re-collect S5 with working poses (recommended then, still open); investigate the camera mount;
+  the demo.
+
+## 2026-11-07: the shaking on the way to rest is not fixed
+
+- **Decided:** leave it. Holding still, no joint moves by one encoder count (rest or standing); moving, the
+  joints track within 0.1-0.15 deg; the shoulder wobbles ~0.1 deg at ~7 Hz near rest, where gravity barely
+  loads it. A standing park pose that loads the shoulder (~0.6 N m) is in `so101-park`, unused.
+- **Why:** it does not reach the data (views are taken after settling) and the visible forearm shake does not
+  show in the encoders.
+- **Options:** park pose for waiting; lower gain near rest; slower final approach.

@@ -12,7 +12,28 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). S4 done: the elbow's zero is off by -7.3 deg (one offset; held-out error 4x lower, S2's touches 8 -> 4.5 mm); wrist camera and ZED located, table height checked to ~1 mm. S5 done: the ZED is consistent to ~1.3 mm; the arm's kinematics are good to ~1.5-2 mm near the calibrated region but several mm off in far poses (cause not found); click-to-point demo works. Next: S6 (write-up).
+> **Status (2026-11-07):** done (S1-S6). Open points are handed on, see "Handed to M3 and M5".
+
+## Summary
+
+- **A servo is a spring with a friction band.** The error is c * tau + side * (b + k |tau|) + o with URDF
+  gravity torques; fitted on 16 poses it predicts a 100 g payload it never saw (0.84-0.91 -> 0.14-0.21 deg on
+  lift and elbow). The servos answer after 50-55 ms. Running at P = 32 instead of LeRobot's 16 halves the sag.
+- **Feed-forward from that model cuts tracking error 3-5x**: M1's circle at 2 / 5 cm/s from 2.0 / 3.8 mm to
+  0.6 / 0.7 mm median.
+- **The cameras are calibrated**: the wrist camera to 0.23 px (0.24 px held out); the ZED's factory
+  calibration predicts our data as well as our own fit, and its stereo measures 25 mm squares as 25.08 mm.
+- **The elbow's zero was 7.3 deg off.** LeRobot puts zero at the middle of the recorded range, and this elbow's
+  range is not symmetric. Found by hand-eye calibration: one offset predicts a run it was not fitted on 4x
+  better (19.4 -> 4.7 px). S2's touch data confirm it (8 -> 4.5 mm), so does the eye (the forearm is level at
+  the model's zero). Now in so101-core's joint map, with safety limits that respect the readings.
+- **The cameras are located**: the wrist camera on the gripper to ~1.5 mm, the ZED in the base frame through
+  the shared iPad board; the table's height agrees with the URDF to ~1 mm.
+- **Near the calibrated region the chain is good to ~1-2 mm per term; far poses add several mm** that no
+  joint or link model explains (S5). The ZED itself is consistent to 1.3 mm. Click-to-point works: a point
+  clicked in the ZED image, the jaw tip 1 cm above it.
+- **Touching points by hand does not calibrate this arm** (S2, stopped): the pointer slid and the hand bent
+  the arm; the residual stayed at 3.5 mm, random per touch.
 
 ## What M1 hands over
 
@@ -34,8 +55,8 @@ From [so101-kinematics](https://github.com/hujunhan/so101-kinematics) (README, "
 | **S2** | The kinematic error: touch points on an iPad grid, fit joint zero offsets. **Tried and stopped** (see the S2 section) | Uncalibrated error measured; no offsets applied |
 | **S3** | Cameras: wrist-camera intrinsics (ChArUco); ZED 2 factory calibration check; ZED SDK vs raw UVC | Intrinsics in YAML |
 | **S4** | Hand-eye: eye-in-hand (wrist) and eye-to-hand (ZED 2) | `T_<to>_<from>` in YAML |
-| **S5** | Error budget and demo: click in the ZED image, the tip goes there; heat map over the workspace | Demo, heat map |
-| **S6** | Write-up: README, `docs/DESIGN.md` | |
+| **S5** | Error budget and demo: click in the ZED image, the tip goes there; heat map over the workspace | `so101-budget`, `results/s5/` |
+| **S6** | Write-up | This README, [docs/DESIGN.md](docs/DESIGN.md), [docs/THEORY.md](docs/THEORY.md) |
 
 ## S1a result: servo timing and static error (one pose)
 
@@ -232,6 +253,8 @@ several mm off; that is not worth more sessions. What remains for the rest of M2
   see): the same pose reached the same way twice lands 0.2-0.4 mm apart (median; max 2-4 mm); reached from
   opposite sides it lands 7 mm apart (median, up to 16-21 mm), and gravity sags the tip 3-5 mm (up to 12-17 mm
   stretched out or loaded). S1's model removes most of both: 0.6-0.7 mm on M1's circle (S1c).
+- **Later (S4):** the camera measured the zeros instead; the elbow was 7.3 deg off, and with that offset S2's
+  touches drop from 8.1 / 8.5 to 4.3 / 4.7 mm RMS (see S4).
 - If it is ever revisited: a rigid pointer (a printed tip screwed to the gripper, or the fixed jaw tip, whose
   position is in the mesh, 6.3 mm beyond the tool frame), teleoperation, or the camera measuring the arm in S4.
 
@@ -363,14 +386,58 @@ corners, each placement left out of the ZED fit. Record: [budget_wide_20261107_2
   arm's centre of mass sits over the shoulder axis). The forearm shaking seen by eye does not show in the
   encoders. It does not touch the data (all views are taken after the arm settles).
 
+## Handed to M3 and M5
+
+- **Calibration in hand**: `results/s4/handeye.yaml` (wrist camera in the gripper, ZED in the base frame, the
+  table's height, the offsets relative to LeRobot readings), the elbow offset in so101-core's joint map,
+  `results/s1/servo_model.json` for static compensation. How to use them: [docs/DESIGN.md](docs/DESIGN.md#8-how-later-repos-use-it).
+- **The ZED pose is tied to the current setup.** The workspace is being rebuilt (light box, backdrop): after
+  that the ZED must be located again (a short hand-eye re-run with the wrist camera's mount fixed; the command
+  is not written). M3 plans FHD per eye and a fixed crop (the ZED sees ~100 deg, mostly room).
+- **Far poses are several mm off** (S5): keep camera-guided motion in the working region, or measure the
+  error there (re-run S5 with working poses only: gripper down, 15-25 cm from the board).
+- **Open from M1**: cold-start IK seeding; the compromise when the asked pitch is unreachable.
+- Small: the demo refuses moves that dip near the table (lift between points); the shoulder's 0.1 deg wobble
+  near rest (a standing park pose is ready in `so101-park`); the wrist camera's left image corners are weakly
+  calibrated.
+
+## Reproduce
+
+```bash
+uv sync --extra hw                       # always with hw: a plain sync removes LeRobot and breaks cv2.aruco
+uv run pytest                            # 44 tests, no hardware
+export SO101_CONFIG_DIR=~/code/mine/so101-core/config
+
+# S1 servos (powered)
+uv run so101-servo run --p 32 && uv run so101-servo analyze results/s1/servo_<time>.npz
+uv run so101-statics run && uv run so101-statics analyze results/s1/statics_<time>.npz
+uv run so101-track model && uv run so101-track run && uv run so101-track analyze results/s1/track_<time>.npz
+# S3 cameras (board: tools/ipad_charuco.html on the iPad)
+uv run so101-cam capture wrist && uv run so101-cam calibrate captures/s3/wrist_<time>
+# S4 hand-eye (powered; the iPad flat on the table, ~50 % brightness)
+uv run so101-handeye zed-view
+uv run so101-handeye run
+uv run so101-handeye fit captures/s4/<run1> captures/s4/<run2> --stack-mm 11
+# S5 budget and demo (powered)
+uv run so101-budget plan && uv run so101-budget run
+uv run so101-budget fit captures/s5/<time> captures/s4/<run1> captures/s4/<run2> --stack-mm 11
+uv run so101-budget point
+```
+
+Powered commands print a plan and preflight, ask for `yes` before torque and for Enter before releasing it,
+so run them in a terminal next to the arm. Every subcommand has `--help`; `plan` subcommands need no hardware.
+
 ## Hardware
 
 - The SO-101 follower and leader, as in M0/M1 (device paths in so101-core's git-ignored `config/devices.yaml`).
-- ZED 2 on a fixed mount (works as a plain UVC stereo camera, 2x 1280x720 at 30 fps). Its current view shows the
-  room; it needs reframing before any image goes into this public repo.
-- Wrist camera (configured as `wrist`).
-- A rigid ChArUco board (printed, mounted flat): still to get.
+- ZED 2 on a fixed mount, read as a plain UVC stereo camera (2 x 1280 x 720 at 30 fps), factory calibration.
+  Its view shows the room: raw images stay in the git-ignored `captures/`.
+- Wrist camera (USB, 1280 x 720 MJPG, fixed focus) on the gripper (configured as `wrist`).
+- iPad Pro 11" (264 ppi, in a flat case; 11 mm with the case) showing the ChArUco board pixel for pixel.
 
-## Decisions
+## Design, theory and decisions
 
-See [DECISIONS.md](DECISIONS.md).
+- How the code is built, data flow, rejected alternatives: [docs/DESIGN.md](docs/DESIGN.md).
+- The theory: servo model, feed-forward, identifiability, camera model, hand-eye, ray-plane, error budget,
+  model choice by held-out data: [docs/THEORY.md](docs/THEORY.md).
+- The dated decision log: [DECISIONS.md](DECISIONS.md).

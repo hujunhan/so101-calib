@@ -29,8 +29,10 @@ and docs/DESIGN.md say what this repo starts from.
   Demo `so101-budget point` works (fixed jaw tip; uses S4's ZED pose because results/s5/budget.yaml is absent;
   the wide run is kept as results/s5/budget_wide_*). Shaking near rest: holding still is exact; moving <=0.15 deg;
   `so101-park` has the tests and a standing park pose (not used by the tools yet).
-- **Next:** S6 (write-up: README, docs/DESIGN.md). Optional: re-collect S5 with working poses only (gripper down,
-  15-25 cm) for a working-region budget; lift between demo points.
+- S6 done (2026-11-07): README (summary, handover, reproduce), docs/DESIGN.md, docs/THEORY.md. **M2 done.**
+  Open (README "Handed to M3 and M5"): re-locate the ZED after the workspace rebuild (command not written);
+  optional S5 re-run with working poses only; lift between demo points; park pose unused. The twin repo's M2 row
+  is updated but left uncommitted (that file has the user's own uncommitted edits).
 
 - For M3 (noted 2026-11-07): the ZED is wide (~100 deg H as calibrated, 110 nominal); the workspace fills a small
   part of the image and the room (people, a cat) the rest. Plan: FHD per eye (factory parameters exist) and a fixed
