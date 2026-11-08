@@ -5,8 +5,9 @@ For each arm pose i (joint angles q_i, read after the arm settled) the wrist cam
     pixel_ij = project(K, D, T_cam_board_i P_j),   T_cam_board_i = X^-1 G(q_i + delta)^-1 Y
 
 G: the gripper frame in the base (FK; the wrist_roll joint frame), X: the camera in the gripper frame,
-Y: the board in the base frame, delta: optional zero offsets of shoulder_lift, elbow_flex and wrist_flex.
-One least-squares fit of all pixels (reprojection error); OpenCV's closed-form hand-eye only starts it.
+Y: the board in the base frame (one per run: the iPad is placed anew), delta: zero offsets of a chosen set of
+joints (MODELS). One least-squares fit of all pixels (reprojection error); OpenCV's closed-form hand-eye only
+starts it.
 
 The ZED sees the same board: T_base_zed = Y T_zed_board^-1.
 """
@@ -20,7 +21,13 @@ from scipy.optimize import least_squares
 from so101_calib import charuco as ch
 from so101_calib.touch import Pointer
 
-FITTED = (1, 2, 3)  # shoulder_lift, elbow_flex, wrist_flex
+# Joint offset models compared by S4 (joint indices: 1 shoulder_lift, 2 elbow_flex, 3 wrist_flex).
+MODELS: dict[str, tuple[int, ...]] = {
+    "none": (),
+    "elbow": (2,),
+    "lift+elbow": (1, 2),
+    "lift+elbow+wrist": (1, 2, 3),
+}
 
 
 def se3(rvec: np.ndarray, t: np.ndarray) -> np.ndarray:
@@ -58,6 +65,7 @@ def average_pose(Ts: list[np.ndarray]) -> np.ndarray:
 class Sample:
     q: np.ndarray  # (5+,) joint angles, rad (as read)
     view: ch.View  # wrist-camera detection
+    board: int = 0  # which placement of the board (run)
 
 
 def pnp(view: ch.View, intr: ch.Intrinsics) -> np.ndarray:
@@ -82,14 +90,34 @@ def initial(samples: list[Sample], intr: ch.Intrinsics, ptr: Pointer) -> tuple[n
     return X, Y
 
 
+def boards(samples: list[Sample]) -> list[int]:
+    return sorted({s.board for s in samples})
+
+
+def initial_multi(samples: list[Sample], intr, ptr) -> tuple[np.ndarray, list[np.ndarray]]:
+    """X from the board with the most views; each board then as the mean of G X T_cam_board."""
+    bs = boards(samples)
+    main = max(bs, key=lambda b: sum(s.board == b for s in samples))
+    X, _ = initial([s for s in samples if s.board == main], intr, ptr)
+    Ys = []
+    for b in bs:
+        sb = [s for s in samples if s.board == b]
+        Ys.append(average_pose([ptr.gripper(s.q[:5]) @ X @ pnp(s.view, intr) for s in sb]))
+    return X, Ys
+
+
 @dataclass
 class Fit:
     X: np.ndarray  # camera in gripper
-    Y: np.ndarray  # board in base
+    Ys: list[np.ndarray]  # board in base, per placement (sample.board)
     offsets_deg: np.ndarray  # (5,)
+    offsets_std_deg: np.ndarray  # (5,)
     rms_px: float
     per_sample_px: np.ndarray
-    std: np.ndarray  # parameter std: X (rvec, t), Y (rvec, t), offsets (rad) as fitted
+
+    @property
+    def Y(self) -> np.ndarray:
+        return self.Ys[0]
 
 
 def _project(sample: Sample, X, Y, off, intr, ptr) -> np.ndarray:
@@ -116,65 +144,105 @@ def flat_yaw(R: np.ndarray) -> float:
     return float(np.arctan2(M[1, 0] - M[0, 1], M[0, 0] + M[1, 1]))
 
 
+def _flat(y) -> np.ndarray:
+    Y = np.eye(4)
+    Y[:3, :3], Y[:3, 3] = rot_z(y[0]) @ FLAT_R, y[1:4]
+    return Y
+
+
 def fit(
     samples: list[Sample],
     intr: ch.Intrinsics,
     ptr: Pointer,
-    offsets: bool = False,
+    joints: tuple[int, ...] = (),
     flat: bool = True,
-    start: tuple[np.ndarray, np.ndarray] | None = None,
+    start: tuple[np.ndarray, list[np.ndarray]] | None = None,
+    fixed_X_off: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Fit:
     """flat: the board lies on the table the base stands on, so only its yaw and position are free (as in
-    S2, this keeps a shoulder_lift offset from hiding in a tilted board)."""
-    X0, Y0 = start if start is not None else initial(samples, intr, ptr)
-    nf = len(FITTED) if offsets else 0
+    S2, this keeps a shoulder_lift offset from hiding in a tilted board). fixed_X_off: (X, offsets in rad)
+    held fixed, only the boards fitted (to test X and the offsets on a run they were not fitted on)."""
+    bs = boards(samples)
+    X0, Y0s = start if start is not None else initial_multi(samples, intr, ptr)
+    if fixed_X_off is not None:
+        X0, joints = fixed_X_off[0], ()
+    nx = 0 if fixed_X_off is not None else 6
+    nj = len(joints)
     ny = 4 if flat else 6
 
     def unpack(x):
-        X = se3(x[0:3], x[3:6])
-        if flat:
-            Y = np.eye(4)
-            Y[:3, :3], Y[:3, 3] = rot_z(x[6]) @ FLAT_R, x[7:10]
-        else:
-            Y = se3(x[6:9], x[9:12])
-        off = np.zeros(5)
-        off[list(FITTED)[:nf]] = x[6 + ny : 6 + ny + nf]
-        return X, Y, off
+        X = X0 if fixed_X_off is not None else se3(x[0:3], x[3:6])
+        off = np.zeros(5) if fixed_X_off is None else fixed_X_off[1].copy()
+        off[list(joints)] = x[nx : nx + nj]
+        Ys = []
+        for k in range(len(bs)):
+            y = x[nx + nj + ny * k : nx + nj + ny * (k + 1)]
+            Ys.append(_flat(y) if flat else se3(y[:3], y[3:]))
+        return X, Ys, off
 
     def res(x):
-        X, Y, off = unpack(x)
-        return np.concatenate([(_project(s, X, Y, off, intr, ptr) - s.view.img).ravel() for s in samples])
+        X, Ys, off = unpack(x)
+        return np.concatenate(
+            [(_project(s, X, Ys[bs.index(s.board)], off, intr, ptr) - s.view.img).ravel() for s in samples]
+        )
 
-    y0 = np.concatenate([[flat_yaw(Y0[:3, :3])], Y0[:3, 3]]) if flat else np.concatenate(rvec_t(Y0))
-    x0 = np.concatenate([*rvec_t(X0), y0, np.zeros(nf)])
+    ys = [
+        np.concatenate([[flat_yaw(Y[:3, :3])], Y[:3, 3]]) if flat else np.concatenate(rvec_t(Y)) for Y in Y0s
+    ]
+    x0 = np.concatenate(([*rvec_t(X0)] if nx else []) + [np.zeros(nj)] + ys)
     r = least_squares(res, x0, x_scale="jac", loss="soft_l1", f_scale=1.0)
-    X, Y, off = unpack(r.x)
+    X, Ys, off = unpack(r.x)
+    resid = res(r.x)
     per = []
     for s in samples:
-        e = _project(s, X, Y, off, intr, ptr) - s.view.img
+        e = _project(s, X, Ys[bs.index(s.board)], off, intr, ptr) - s.view.img
         per.append(np.sqrt((e**2).sum(1).mean()))
-    resid = res(r.x)
     dof = max(len(resid) - len(r.x), 1)
     cov = float(resid @ resid) / dof * np.linalg.pinv(r.jac.T @ r.jac)
+    off_std = np.zeros(5)
+    off_std[list(joints)] = np.sqrt(np.diag(cov)[nx : nx + nj])
+    # boards indexed by sample.board (missing placements get None)
+    Ys_by_id = [Ys[bs.index(b)] if b in bs else None for b in range(max(bs) + 1)]
     return Fit(
-        X, Y, np.degrees(off), float(np.sqrt((resid**2).mean() * 2)), np.array(per), np.sqrt(np.diag(cov))
+        X,
+        Ys_by_id,
+        np.degrees(off),
+        np.degrees(off_std),
+        float(np.sqrt((resid**2).mean() * 2)),
+        np.array(per),
     )
 
 
-def heldout_px(samples, intr, ptr, offsets: bool, folds: int = 4, flat: bool = True) -> float:
+def heldout_px(samples, intr, ptr, joints: tuple[int, ...], folds: int = 4, flat: bool = True) -> float:
     """RMS reprojection error of poses left out of the fit (k-fold): the fair test of whether the offsets
     help or only fit noise."""
     idx = np.arange(len(samples))
     errs = []
     for f in range(folds):
         test = idx[f::folds]
-        train = [samples[i] for i in np.setdiff1d(idx, test)]
-        ft = fit(train, intr, ptr, offsets, flat)
+        ft = fit([samples[i] for i in np.setdiff1d(idx, test)], intr, ptr, joints, flat)
         off = np.radians(ft.offsets_deg)
         for i in test:
-            e = _project(samples[i], ft.X, ft.Y, off, intr, ptr) - samples[i].view.img
+            e = _project(samples[i], ft.X, ft.Ys[samples[i].board], off, intr, ptr) - samples[i].view.img
             errs.append((e**2).sum(1).mean())
     return float(np.sqrt(np.mean(errs)))
+
+
+def other_run_px(samples, intr, ptr, joints: tuple[int, ...], flat: bool = True) -> float | None:
+    """Leave one run out: X and the offsets fitted on the other runs, then on the left-out run only its board
+    placement is fitted (4 numbers). RMS px over all runs; None with a single run. The strictest test:
+    another day's placement of the board, poses never seen."""
+    bs = boards(samples)
+    if len(bs) < 2:
+        return None
+    errs = []
+    for b in bs:
+        train = [s for s in samples if s.board != b]
+        test = [s for s in samples if s.board == b]
+        ft = fit(train, intr, ptr, joints, flat)
+        fb = fit(test, intr, ptr, flat=flat, fixed_X_off=(ft.X, np.radians(ft.offsets_deg)))
+        errs.append(fb.per_sample_px**2)
+    return float(np.sqrt(np.mean(np.concatenate(errs))))
 
 
 def board_mm_error(fit_: Fit, samples, intr, ptr) -> np.ndarray:
@@ -185,9 +253,8 @@ def board_mm_error(fit_: Fit, samples, intr, ptr) -> np.ndarray:
     out = []
     for s in samples:
         seen = ptr.gripper(s.q[:5] + off) @ fit_.X @ pnp(s.view, intr)
-        out.append(
-            np.linalg.norm((seen[:3, :3] @ centre + seen[:3, 3]) - (fit_.Y[:3, :3] @ centre + fit_.Y[:3, 3]))
-        )
+        Y = fit_.Ys[s.board]
+        out.append(np.linalg.norm((seen[:3, :3] @ centre + seen[:3, 3]) - (Y[:3, :3] @ centre + Y[:3, 3])))
     return np.array(out) * 1000
 
 
@@ -262,3 +329,22 @@ def spread(qs: list[np.ndarray], X, ptr: Pointer, n: int, first: np.ndarray) -> 
 def zed_in_base(Y: np.ndarray, T_zed_board: np.ndarray) -> np.ndarray:
     """The ZED left eye's frame in the arm's base frame."""
     return Y @ inv(T_zed_board)
+
+
+def zed_fit(views: list[tuple[ch.View, np.ndarray]], intr: ch.Intrinsics) -> tuple[np.ndarray, float]:
+    """The ZED in the base frame from its views of the board in several placements (view, board in base):
+    one pose for all their corners (reprojection error). One placement alone fixes the ZED's tilt only
+    through the board's small extent; placements apart tie it down. Returns (T_base_zed, RMS px)."""
+    T0 = average_pose([zed_in_base(Y, pnp(v, intr)) for v, Y in views])
+
+    def res(x):
+        T = inv(se3(x[:3], x[3:]))  # base -> ZED
+        out = []
+        for v, Y in views:
+            rv, t = rvec_t(T @ Y)
+            p, _ = cv2.projectPoints(v.obj, rv, t, intr.K, intr.D)
+            out.append((p.reshape(-1, 2) - v.img).ravel())
+        return np.concatenate(out)
+
+    r = least_squares(res, np.concatenate(rvec_t(T0)), x_scale="jac", loss="soft_l1")
+    return se3(r.x[:3], r.x[3:]), float(np.sqrt((r.fun**2).mean() * 2))

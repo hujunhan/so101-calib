@@ -15,12 +15,12 @@ and docs/DESIGN.md say what this repo starts from.
   no offsets applied. `so101-touch` stays for a later try (rigid pointer, teleop).
 - S3 done (README): wrist intrinsics in results/s3/wrist_intrinsics.yaml (left corners weak); ZED over UVC
   with the factory calibration (`use: factory` in results/s3/zed_intrinsics.yaml; file in captures/zed/).
-- S4 done (README): results/s4/handeye.yaml (X wrist cam in gripper, Y board, ZED in base, joint offsets
-  lift/elbow/wrist +0.6/-5.3/-2.8 deg, +- ~1 deg). S2's touch data confirm the offsets (8 -> 4.5 mm). Offsets not
-  written into so101-core's joint map (user to decide). The ZED pose is temporary: the user is rebuilding the
-  workspace (light box, backdrop); then re-locate the ZED from the fixed X (a short command, not written yet).
-  Only 15/24 wrist views usable: jaws cover the lower centre, room reflections in the iPad glass; dim the iPad
-  (~30-40 %) or the ZED saturates it.
+- S4 done (README), two runs fitted together: elbow offset -7.28 deg is the only one kept (lift/wrist trade
+  against X; per-run fits swung by 3 deg). results/s4/handeye.yaml: X, a board per run, ZED from both placements,
+  table_z_m. Confirmed by S2's touches (8 -> 4.5 mm) and the table height (URDF base bottom -2.4 mm vs -1.4 / -3.1).
+  ZED pose ~2.6 mm on the table (one view per placement); S5's extra placements will tighten it. Not written into
+  so101-core's joint map (user to decide). The user is rebuilding the workspace (light box, backdrop): then
+  re-locate the ZED (command not written yet). iPad ~50 % or the ZED saturates; avoid overhead reflections.
 - **Next:** S5 (error budget; click-to-point).
 
 - For M3 (noted 2026-11-07): the ZED is wide (~100 deg H as calibrated, 110 nominal); the workspace fills a small

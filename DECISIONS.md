@@ -125,3 +125,14 @@ Format: date, decided, why, options. Open questions inherited from the series pl
   gripper marker, and the iPad is too big to carry.
 - **Options:** poses automatic around a taught pose, or by teleoperation; offsets fitted or not; the ZED by the
   shared board, or by a marker on the gripper.
+
+## 2026-11-07: S4 keeps one joint offset (elbow), fitted over two runs
+
+- **Decided:** fit all S4 runs together (one camera mount and one set of offsets, a board placement per run) and
+  keep the simplest offset model whose error on a left-out run is within 5 % of the best: elbow_flex only,
+  -7.28 deg. M2 uses it from `results/s4/handeye.yaml`; so101-core's joint map is unchanged for now.
+- **Why:** per-run fits of lift, elbow and wrist offsets swung by up to 3 deg between runs while predicting each
+  other equally well: lift and wrist trade against the camera mount and each other. The elbow alone predicts a
+  run it was not fitted on as well as all three (4.7 px against 19.4 px with none), is known to 0.1 deg, and
+  S2's touch data and the table height agree with it.
+- **Options:** all three offsets (first run's choice); elbow only; write the offset into so101-core now.

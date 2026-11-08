@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). S4 done: wrist camera in the gripper to ~1.5 mm; the joint zeros are off by up to 5.3 deg (elbow), which cuts held-out error 4x and S2's touch error from ~8 to ~4.5 mm. Next: S5 (error budget, click-to-point).
+> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). S4 done: the elbow's zero is off by -7.3 deg (one offset; held-out error 4x lower, S2's touches 8 -> 4.5 mm); wrist camera and ZED located, table height checked to ~1 mm. Next: S5 (error budget, click-to-point).
 
 ## What M1 hands over
 
@@ -277,32 +277,40 @@ Stereolabs and compared. Reports: [wrist](results/s3/wrist_20261107_001917.md),
 ## S4 result: hand-eye and joint offsets (2026-11-07)
 
 `so101-handeye run`: the iPad board lies still on the table; the user poses the limp arm once over it, then the
-arm moves itself through 8 small and 16 spread poses (collision-checked against the iPad) and the wrist camera
-takes a view at each. `so101-handeye fit` fits the wrist camera in the gripper (X) and the board in the base
-(Y) to all corner pixels, with and without zero offsets of lift, elbow and wrist_flex, and compares them on views
-left out of the fit (4-fold). Report: [handeye_20261107_215410](results/s4/handeye_20261107_215410.md);
-parameters: `results/s4/handeye.yaml`.
+arm moves itself through 8 small and 16-20 spread poses (collision-checked against the iPad) and the wrist
+camera takes a view at each. Two runs, the iPad placed anew for each. `so101-handeye fit` fits one wrist camera
+in the gripper (X), one board placement per run (Y), and joint zero offsets, to all corner pixels; offset
+models are compared on views left out (4-fold) and on a whole run left out (X and offsets from one run, only
+the board refitted on the other). Report: [handeye_20261107_221446_x2](results/s4/handeye_20261107_221446_x2.md)
+(first run alone: [handeye_20261107_215410](results/s4/handeye_20261107_215410.md)); parameters:
+`results/s4/handeye.yaml`.
 
-| Model | Fit RMS (px) | Held-out RMS (px) | Board centre, camera vs FK: median / max (mm) |
-|---|---:|---:|---|
-| joint zeros as they are | 18.6 | 23.5 | 5.4 / 12.4 |
-| with offsets lift / elbow / wrist = +0.6 / -5.3 / -2.8 deg (+- 1.3 / 1.0 / 0.6) | 4.1 | 5.6 | 1.2 / 3.3 |
+| Offsets fitted | Left-out run (px) | Board centre, camera vs FK: median / max (mm) | lift / elbow / wrist (deg) |
+|---|---:|---|---|
+| none | 19.4 | 8.5 / 15.0 | - |
+| **elbow** | **4.7** | 1.5 / 3.9 | - / **-7.28 +- 0.11** / - |
+| lift + elbow | 4.7 | 1.4 / 3.6 | +1.5 +- 0.9 / -8.1 +- 0.5 / - |
+| lift + elbow + wrist | 4.7 | 1.3 / 3.4 | +1.0 +- 0.9 / -6.2 +- 0.7 / -1.7 +- 0.4 |
 
-- **The joint zeros are off, mostly the elbow (-5.3 deg) and wrist_flex (-2.8 deg).** With the offsets, views
-  left out of the fit are predicted 4x better. This is the error S2 tried to measure: LeRobot's calibration sets
-  each zero from a pose the user judges by eye, so a few degrees are expected.
-- **S2's touches confirm it independently.** Fixing S4's offsets and refitting only the pointer and the dot
-  grid's placement, the hand-guided touches of S2 drop from 8.1 / 8.5 mm RMS to 4.1 / 4.8 mm (two runs), and
-  the error in the distance between touched dots from 8.2 / 9.2 to 3.7 / 3.1 mm: close to the ~3.5 mm that S2's
-  own fits reached (the toothpick's slip). Different method, different day, same offsets.
-- **Wrist camera in the gripper frame** (X): 73 mm along the gripper's y axis, +- 1-1.5 mm, tilted ~25 deg.
-- **The offsets are known to about 1 deg**: leaving one view out moves the elbow offset between -6.0 and -2.7
-  deg. Only 15 of the 24 views had 12+ corners: the gripper jaws cover the lower centre of the wrist image, and
-  the room reflects in the iPad's glass at oblique views (the iPad was dimmed so the ZED does not saturate).
-  More views would tighten them; the S2 check says they are already worth using.
-- **The ZED** (left eye) sits at [38.8, 27.7, 38.2] cm in the base frame, looking down at ~63 deg; the board it
-  sees moved 0.4 mm between before and after the run. This pose holds only until the ZED or the arm is moved
-  (the workspace is to be rebuilt); a short re-run then gives it again from the fixed X.
+- **The elbow's zero is off by -7.3 deg; nothing else is needed.** One offset predicts a run it was not fitted
+  on 4x better (19.4 -> 4.7 px). Adding lift and wrist_flex offsets does not predict better; they only trade
+  against each other and against the camera mount (fitted per run they swung by up to 3 deg: the first run
+  alone gave lift / elbow / wrist +0.6 / -5.3 / -2.8, the second -0.2 / -7.1 / +0.4). LeRobot sets each zero
+  from a pose the user judges by eye, so degrees are expected.
+- **S2's touches confirm it independently.** With the elbow offset fixed, refitting only the pointer and the dot
+  grid's placement, S2's hand-guided touches drop from 8.1 / 8.5 to 4.3 / 4.7 mm RMS (two runs), and the error
+  in distances between touched dots from 8.2 / 9.2 to 3.9 / 3.1 mm, close to the ~3.5 mm S2's own fits reached
+  (the toothpick slipped). Different method, different day.
+- **The table height checks out.** Board height minus the measured iPad + case (11 mm) puts the table at -1.4 and
+  -3.1 mm in the base frame; the URDF's base bottom is at -2.4 mm.
+- **Wrist camera in the gripper frame** (X): [-4.0, 70.9, -3.3] mm, looking ~25 deg off the gripper axis.
+- **The ZED** (left eye) is at [38.6, 27.3, 38.7] cm in the base frame, looking down at ~63 deg, fitted to its
+  views of both placements (1.0 px). From each run alone it lands 8 mm and 1.3 deg apart, which moves a pixel's
+  ray-table point by 2.6 mm median (5 mm max) over the workspace: the tilt of a 20 x 12 cm board at 50 cm is
+  weakly fixed by one view. More placements (S5) tie it down. The pose holds until the ZED or the arm moves.
+- Usable views: 15 / 24 and 19 / 28. The jaws cover the lower centre of the wrist image (now in the pose
+  planner) and the iPad glass reflects the room at oblique views. The iPad must be dimmed (~50 %) or the ZED
+  saturates it.
 - Not yet applied to so101-core's joint map: M2's own code uses `results/s4/handeye.yaml`.
 
 ## Hardware

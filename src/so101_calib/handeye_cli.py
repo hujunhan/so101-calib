@@ -6,8 +6,10 @@ The iPad board (tools/ipad_charuco.html) lies still on the table in front of the
                                     sees it (space); then torque on (P = SERVO_P) and the arm moves itself
                                     through ~22 poses around it (SafeArm, slow, collision-checked with the
                                     iPad), taking a wrist image at each -> captures/s4/<time>/
-    so101-handeye fit DIR           hand-eye with and without joint offsets, held-out comparison, the ZED in
-                                    the base frame -> results/s4/handeye.yaml and a report
+    so101-handeye fit DIR [DIR..]   hand-eye of all runs together (one board placement per run), joint offset
+                                    models compared on held-out views and on left-out runs, the ZED in the
+                                    base frame -> results/s4/handeye.yaml and a report. --stack-mm: the
+                                    iPad + case thickness, to check the table height against the URDF
 
 Images stay in the git-ignored captures/; results/ gets numbers only.
 """
@@ -111,6 +113,16 @@ def zed_board(frames: list[np.ndarray]) -> tuple[np.ndarray | None, int]:
         if v is not None and len(v.ids) >= 16:
             Ts.append(he.pnp(v, intr))
     return (he.average_pose(Ts) if Ts else None), len(Ts)
+
+
+def zed_views(frames: list[np.ndarray]) -> list[ch.View]:
+    det = ch.detector()
+    out = []
+    for f in frames:
+        v = ch.detect(cv2.cvtColor(cam_cli.halves(f, "zed")[0], cv2.COLOR_BGR2GRAY), det)
+        if v is not None and len(v.ids) >= 16:
+            out.append(v)
+    return out
 
 
 def zed_view() -> None:
@@ -258,7 +270,7 @@ def run() -> None:
                 raise SystemExit(
                     "Too few views to start the fit; teach a pose where the whole board is seen."
                 )
-            first = he.fit(views, intr, ptr, offsets=False)
+            first = he.fit(views, intr, ptr)
             print(
                 f"First fit: {first.rms_px:.2f} px; camera {np.round(first.X[:3, 3] * 100, 1).tolist()} cm "
                 "in the gripper frame. Planning stage B."
@@ -299,7 +311,7 @@ def run() -> None:
 
 
 # -- the fit -------------------------------------------------------------------------------------------------
-def load_samples(folder: Path, samples: list[dict], intr) -> list[he.Sample]:
+def load_samples(folder: Path, samples: list[dict], intr, board: int = 0) -> list[he.Sample]:
     det, out = ch.detector(), []
     for s in samples:
         img = cv2.imread(str(folder / f"wrist_{s['k']:03d}.png"))
@@ -307,7 +319,7 @@ def load_samples(folder: Path, samples: list[dict], intr) -> list[he.Sample]:
             continue
         v = ch.detect(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), det)
         if v is not None and len(v.ids) >= 12:
-            out.append(he.Sample(np.asarray(s["q"], float), v))
+            out.append(he.Sample(np.asarray(s["q"], float), v, board))
     return out
 
 
@@ -315,64 +327,126 @@ def board_centre(Y: np.ndarray) -> np.ndarray:
     return Y[:3, :3] @ ch.board().getChessboardCorners().mean(0) + Y[:3, 3]
 
 
-def fit_cmd(folder: Path) -> None:
-    meta = json.loads((folder / "samples.json").read_text())
+def base_bottom_z() -> float:
+    """Height (m) of the base's lowest point in the base frame (the URDF mesh): where the table is."""
+    import mujoco
+    from so101_core.model import MJCF_PATH
+
+    m = mujoco.MjModel.from_xml_path(str(MJCF_PATH))
+    d = mujoco.MjData(m)
+    mujoco.mj_forward(m, d)
+    b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "base")
+    zs = []
+    for g in range(m.ngeom):
+        if m.geom_bodyid[g] == b and m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+            k = m.geom_dataid[g]
+            v = m.mesh_vert[m.mesh_vertadr[k] : m.mesh_vertadr[k] + m.mesh_vertnum[k]]
+            zs.append(((d.geom_xmat[g].reshape(3, 3) @ v.T).T + d.geom_xpos[g])[:, 2].min())
+    return float(min(zs))
+
+
+def choose(held: dict[str, float]) -> str:
+    """The simplest model within 5 % of the best held-out error; offsets only if they beat no offsets by
+    20 % or more (models are ordered simple to complex)."""
+    best = min(held.values())
+    for name in he.MODELS:
+        if held[name] <= 1.05 * best:
+            pick = name
+            break
+    return pick if held[pick] < 0.8 * held["none"] else "none"
+
+
+def fit_cmd(folders: list[Path], stack_mm: float | None = None) -> None:
     intr, ptr = wrist_intrinsics(), Pointer()
-    samples = load_samples(folder, meta["samples"], intr)
-    fits = {o: he.fit(samples, intr, ptr, offsets=o) for o in (False, True)}
-    held = {o: he.heldout_px(samples, intr, ptr, offsets=o) for o in (False, True)}
-    mm = {o: he.board_mm_error(fits[o], samples, intr, ptr) for o in (False, True)}
-    zb, _ = zed_board([cv2.imread(str(p)) for p in sorted(folder.glob("zed_before_*.png"))])
-    za, _ = zed_board([cv2.imread(str(p)) for p in sorted(folder.glob("zed_after_*.png"))])
-    md = [f"# S4 hand-eye: {folder.name}", "", f"{len(samples)} wrist views of the still board.", ""]
-    md += [
-        "| Model | Fit RMS (px) | Held-out RMS (px) | Board centre, camera vs fit: median / max (mm) "
-        "| Offsets lift / elbow / wrist (deg) |",
-        "|---|---:|---:|---|---|",
+    samples = []
+    for b, folder in enumerate(folders):
+        meta = json.loads((folder / "samples.json").read_text())
+        samples += load_samples(folder, meta["samples"], intr, b)
+    fits = {m: he.fit(samples, intr, ptr, j) for m, j in he.MODELS.items()}
+    held = {m: he.heldout_px(samples, intr, ptr, j) for m, j in he.MODELS.items()}
+    runs = {m: he.other_run_px(samples, intr, ptr, j) for m, j in he.MODELS.items()}
+    mm = {m: he.board_mm_error(fits[m], samples, intr, ptr) for m in he.MODELS}
+    crit = runs if len(folders) > 1 else held
+    pick = choose(crit)
+    names = ", ".join(f.name for f in folders)
+    n_runs = [sum(s.board == b for s in samples) for b in range(len(folders))]
+    md = [
+        f"# S4 hand-eye: {names}",
+        "",
+        f"{len(samples)} wrist views ({' + '.join(map(str, n_runs))}), one board placement per run.",
+        "",
+        "| Offsets fitted | Fit RMS (px) | Held-out views (px) | Left-out run (px) "
+        "| Board centre, camera vs fit: median / max (mm) | Offsets lift / elbow / wrist (deg) |",
+        "|---|---:|---:|---:|---|---|",
     ]
-    for o in (False, True):
-        f = fits[o]
-        offs = " / ".join(f"{f.offsets_deg[j]:+.2f}" for j in he.FITTED) if o else "-"
-        md.append(
-            f"| {'with offsets' if o else 'joint zeros as they are'} | {f.rms_px:.2f} | {held[o]:.2f} | "
-            f"{np.median(mm[o]):.1f} / {mm[o].max():.1f} | {offs} |"
+    for m, j in he.MODELS.items():
+        f = fits[m]
+        offs = " / ".join(
+            f"{f.offsets_deg[k]:+.2f} +- {f.offsets_std_deg[k]:.2f}" if k in j else "-" for k in (1, 2, 3)
         )
-    best = bool(held[True] < 0.8 * held[False])
-    f = fits[best]
+        r = f"{runs[m]:.2f}" if runs[m] is not None else "-"
+        md.append(
+            f"| {m} | {f.rms_px:.2f} | {held[m]:.2f} | {r} | "
+            f"{np.median(mm[m]):.1f} / {mm[m].max():.1f} | {offs} |"
+        )
+    f = fits[pick]
     rv, t = he.rvec_t(f.X)
     md += [
         "",
-        f"Kept: {'with offsets' if best else 'without offsets'} (offsets kept only if they cut the held-out "
-        "error by 20 % or more).",
+        f"Kept: **{pick}** (the simplest model within 5 % of the best "
+        f"{'left-out-run' if len(folders) > 1 else 'held-out'} error, and offsets only if they cut it "
+        "by 20 % or more).",
         f"Wrist camera in the gripper frame: t = {np.round(t * 1000, 1).tolist()} mm, rotation vector "
         f"{np.round(np.degrees(rv), 2).tolist()} deg.",
-        f"Board in the base frame: centre {np.round(board_centre(f.Y) * 100, 1).tolist()} cm.",
     ]
     out = {
-        "source": folder.name,
-        "offsets_used": bool(best),
+        "source": [fo.name for fo in folders],
+        "offset_model": pick,
         "joint_offsets_deg": {
             j: round(float(f.offsets_deg[i]), 3)
             for i, j in enumerate(("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"))
         },
         "T_gripper_wristcam": np.round(f.X, 6).tolist(),
-        "T_base_board": np.round(f.Y, 6).tolist(),
+        "T_base_board": {},
     }
-    if zb is not None:
-        Z = he.zed_in_base(f.Y, zb)
+    floor = base_bottom_z() if stack_mm is not None else None
+    zed_seen: list = []
+    for b, folder in enumerate(folders):
+        Y = f.Ys[b]
+        out["T_base_board"][folder.name] = np.round(Y, 6).tolist()
+        centre = np.round(board_centre(Y) * 100, 1).tolist()
+        line = f"Run {folder.name}: board centre {centre} cm in the base frame"
+        if floor is not None:
+            table = Y[2, 3] - stack_mm / 1000
+            line += (
+                f"; table at {table * 1000:+.1f} mm (board - {stack_mm:g} mm iPad and case), the URDF's base "
+                f"bottom at {floor * 1000:+.1f} mm"
+            )
+        zb, _ = zed_board([cv2.imread(str(p)) for p in sorted(folder.glob("zed_before_*.png"))])
+        za, _ = zed_board([cv2.imread(str(p)) for p in sorted(folder.glob("zed_after_*.png"))])
+        if zb is not None:
+            Z = he.zed_in_base(Y, zb)
+            zed_seen += [(v, Y) for v in zed_views([cv2.imread(str(p)) for p in folder.glob("zed_*.png")])]
+            line += f"; the ZED from this run alone at {np.round(Z[:3, 3] * 100, 1).tolist()} cm"
+            if za is not None:
+                line += f"; board moved {np.linalg.norm(za[:3, 3] - zb[:3, 3]) * 1000:.1f} mm during the run"
+        md.append(line + ".")
+    if zed_seen:
+        # assumes the ZED stood still through all runs
+        Z, zrms = he.zed_fit(zed_seen, zed_left())
         out["T_base_zed_left"] = np.round(Z, 6).tolist()
         md.append(
-            f"ZED left eye in the base frame: {np.round(Z[:3, 3] * 100, 1).tolist()} cm, looking along "
-            f"{np.round(Z[:3, 2], 2).tolist()}."
+            f"ZED left eye, from all runs' board placements together: {np.round(Z[:3, 3] * 100, 1).tolist()} "
+            f"cm in the base frame, looking along {np.round(Z[:3, 2], 2).tolist()} ({zrms:.2f} px)."
         )
-        if za is not None:
-            md.append(
-                "Board seen by the ZED before vs after the run: "
-                f"{np.linalg.norm(za[:3, 3] - zb[:3, 3]) * 1000:.1f} mm apart (it must not have moved)."
-            )
+    if floor is not None:
+        out["table_z_m"] = round(
+            float(np.mean([f.Ys[b][2, 3] for b in range(len(folders))]) - stack_mm / 1000), 5
+        )
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "handeye.yaml").write_text(yaml.safe_dump(out, sort_keys=False))
-    report = RESULTS / f"handeye_{folder.name}.md"
+    suffix = f"_x{len(folders)}" if len(folders) > 1 else ""
+    report = RESULTS / f"handeye_{folders[-1].name}{suffix}.md"
     report.write_text("\n".join(md) + "\n")
     print("\n".join(md))
     print(f"Wrote {RESULTS / 'handeye.yaml'} and {report}")
@@ -381,16 +455,17 @@ def fit_cmd(folder: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("stage", choices=["zed-view", "run", "fit"])
-    ap.add_argument("arg", nargs="?")
+    ap.add_argument("dirs", nargs="*", type=Path)
+    ap.add_argument("--stack-mm", type=float, help="iPad + case thickness (mm), for the table height check")
     a = ap.parse_args()
     if a.stage == "zed-view":
         zed_view()
     elif a.stage == "run":
         run()
     else:
-        if not a.arg:
-            raise SystemExit("so101-handeye fit captures/s4/<time>")
-        fit_cmd(Path(a.arg))
+        if not a.dirs:
+            raise SystemExit("so101-handeye fit captures/s4/<time> [captures/s4/<time> ..]")
+        fit_cmd(a.dirs, a.stack_mm)
 
 
 if __name__ == "__main__":
