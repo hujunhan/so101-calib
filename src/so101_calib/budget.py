@@ -25,6 +25,10 @@ from so101_calib.touch import Pointer
 # The model's tool point (MuJoCo site "gripperframe", between the jaw tips), in the gripper (wrist_roll)
 # frame.
 TOOL = np.array([-0.0079, -0.0002, -0.0981])
+# The tip of the fixed jaw (the lowest point of its mesh along the gripper axis): a point one can see and
+# measure to; the moving jaw's tip, open at 0, about 1 mm further out.
+JAW_TIP = np.array([-0.0089, -0.0002, -0.1044])
+MOVING_JAW_TIP = np.array([0.0110, -0.0001, -0.1054])
 IPAD_SIZE_M = (0.25, 0.18, 0.011)  # iPad Pro 11" in its case (11 mm measured), for collision checks
 IPAD_MARGIN_M = 0.015  # the board's first estimate (from the ZED) can be off by several mm
 
@@ -50,7 +54,7 @@ def ipad_box(Y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 def tool_clearance(q_true: np.ndarray, ptr: Pointer, z: float) -> float:
     """Height (m) above z of the lowest gripper point tracked: jaw tips and the wrist."""
     G = ptr.gripper(q_true[:5])
-    pts = [TOOL, np.array([-0.025, 0.0, -0.10]), np.zeros(3)]
+    pts = [TOOL, JAW_TIP, MOVING_JAW_TIP, np.array([-0.025, 0.0, -0.10]), np.zeros(3)]
     return min(float((G[:3, :3] @ p + G[:3, 3])[2]) for p in pts) - z
 
 

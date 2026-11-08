@@ -251,16 +251,22 @@ def wrist_boards(folders: list[Path], cal: Calib, intr, ptr) -> tuple[he.Fit, li
 
 
 def ik_tool(
-    ptr: Pointer, target: np.ndarray, q0: np.ndarray, lo, hi, pitches=(90, 75, 60)
+    ptr: Pointer,
+    target: np.ndarray,
+    q0: np.ndarray,
+    lo,
+    hi,
+    pitches=(90, 75, 60),
+    tool: np.ndarray = bu.TOOL,
 ) -> np.ndarray | None:
-    """True joint angles (5,) putting the tool point at target, the gripper pointing down as steeply as it can
-    (pitch below horizontal, deg), wrist_roll 0. None if out of reach."""
+    """True joint angles (5,) putting `tool` (gripper frame) at target, the gripper pointing down as steeply
+    as it can (pitch below horizontal, deg), wrist_roll 0. None if out of reach."""
     for pitch in pitches:
 
         def f(q, pitch=pitch):
             return np.concatenate(
                 [
-                    (ptr.tip(q, bu.TOOL) - target) * 1000,
+                    (ptr.tip(q, tool) - target) * 1000,
                     [0.05 * (ptr.pitch_deg(q) - pitch), 0.2 * np.degrees(q[4])],
                 ]
             )
@@ -432,6 +438,27 @@ def fit_cmd(dirs: list[Path], stack_mm: float | None) -> None:
 
 
 # -- point (demo) --------------------------------------------------------------------------------------------
+def plan_point(ptr, target, z, q_true, lo, hi, rest, extra, safety, coll, q_now):
+    """Hover (6 cm) and point (1 cm) poses over target for the fixed jaw's tip: true angles (5,) and commands
+    (6,) before compensation; or why not. The move there and the way down are collision-checked."""
+    hover = ik_tool(ptr, target + [0, 0, HOVER_M], q_true, lo, hi, tool=bu.JAW_TIP)
+    if hover is None:
+        return "Out of reach"
+    touch = ik_tool(ptr, target + [0, 0, ABOVE_M], hover, lo, hi, tool=bu.JAW_TIP)
+    if touch is None:
+        return "Out of reach"
+    qa, qb = np.append(hover - extra, rest[5]), np.append(touch - extra, rest[5])
+    step = POINT_SPEED / safety.cfg.rate_hz
+    if bu.route_contacts(st.route([qa], q_now, safety, step), coll, ptr, z, extra, rest):
+        return "The way there would come too close to the table or the arm"
+    for q in st.ramp_path(qa, qb, step):
+        qt = q.copy()
+        qt[:5] += extra
+        if coll.hits(qt) or bu.tool_clearance(qt, ptr, z) < ABOVE_M - 0.003:
+            return "The way down would touch something"
+    return hover, touch, qa, qb
+
+
 def point(table: bool) -> None:
     from so101_core.arm import SafeArm
     from so101_core.config import DeviceConfig, JointMap
@@ -451,7 +478,7 @@ def point(table: bool) -> None:
     coll = st.Collisions(clearance_m=0.005)
     print(
         f"Click a point in the ZED window ({'table' if table else 'iPad surface'} at {z * 1000:+.1f} mm, "
-        f"ZED pose from {cal.zed_source}); the tool point (between the jaw tips) goes "
+        f"ZED pose from {cal.zed_source}); the fixed jaw's tip goes "
         f"{ABOVE_M * 100:.0f} cm above it.\n"
         "In the window: click = pick, g = go, q = quit. Keep hands off the arm."
     )
@@ -485,31 +512,26 @@ def point(table: bool) -> None:
                     break
                 if key != ord("g") or target is None:
                     continue
-                hover = ik_tool(ptr, target + [0, 0, HOVER_M], q_true, lo, hi)
-                touch = ik_tool(ptr, target + [0, 0, ABOVE_M], hover if hover is not None else q_true, lo, hi)
-                if hover is None or touch is None:
-                    print("Out of reach; pick another point.")
+                plan = plan_point(ptr, target, z, q_true, lo, hi, rest, extra, arm.safety, coll, arm.read())
+                if isinstance(plan, str):
+                    print(plan + "; pick another point.")
                     continue
-                qa, qb = np.append(hover, rest[5]), np.append(touch, rest[5])
-                if coll.hits(qa) or coll.hits(qb) or bu.tool_clearance(qb, ptr, z) < ABOVE_M - 0.003:
-                    print("That pose would touch something; pick another point.")
-                    continue
+                hover, touch, qa, qb = plan
                 # servo compensation (S1): command past the target by the predicted sag and dead band
                 side = cp.motion_side(np.sign(touch - hover)[None])[0]
                 comp = np.radians(model.error_deg(grav.tau(touch), side))
                 cmd_h, cmd_t = qa.copy(), qb.copy()
-                cmd_h[:5] -= extra
-                cmd_t[:5] += comp - extra
+                cmd_t[:5] += comp
                 arm.move_to(cmd_h, speed_rad_s=POINT_SPEED)
                 arm.move_to(cmd_t, speed_rad_s=POINT_SPEED / 2)
                 time.sleep(0.8)
                 q_now = np.mean([arm.read() for _ in range(10)], axis=0)
                 q_now[:5] += extra
-                tip = ptr.tip(q_now, bu.TOOL)
+                tip = ptr.tip(q_now, bu.JAW_TIP)
                 d = (tip - (target + [0, 0, ABOVE_M])) * 1000
                 print(
-                    f"At ({target[0] * 100:.1f}, {target[1] * 100:+.1f}) cm: the joints say the tool "
-                    f"point is off by {np.round(d, 1).tolist()} mm (servo residual). Look: is it "
+                    f"At ({target[0] * 100:.1f}, {target[1] * 100:+.1f}) cm: the joints say the jaw "
+                    f"tip is off by {np.round(d, 1).tolist()} mm (servo residual). Look: is it "
                     f"{ABOVE_M * 100:.0f} cm "
                     "above the "
                     "point you clicked? Press any key in the window to go back up."
