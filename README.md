@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). S4 done: the elbow's zero is off by -7.3 deg (one offset; held-out error 4x lower, S2's touches 8 -> 4.5 mm); wrist camera and ZED located, table height checked to ~1 mm. Next: S5 (error budget, click-to-point).
+> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). S4 done: the elbow's zero is off by -7.3 deg (one offset; held-out error 4x lower, S2's touches 8 -> 4.5 mm); wrist camera and ZED located, table height checked to ~1 mm. S5 done: the ZED is consistent to ~1.3 mm; the arm's kinematics are good to ~1.5-2 mm near the calibrated region but several mm off in far poses (cause not found); click-to-point demo works. Next: S6 (write-up).
 
 ## What M1 hands over
 
@@ -318,6 +318,50 @@ the board refitted on the other). Report: [handeye_20261107_221446_x2](results/s
 - **Checked by eye on the arm** (`so101-zero run`): at the model's zero with the offset the forearm is level, as
   the URDF has it (wrist axis +5 mm over the elbow axis); at LeRobot's zero (before the offset) it points up,
   as predicted (+22 mm).
+
+## S5 result: the error over the workspace, and the click-to-point demo (2026-11-07)
+
+`so101-budget run`: the iPad is put down at 5 places (outlines drawn in the ZED view); at each the ZED sees it
+and the arm looks at it with the wrist camera from up to 5 poses, chosen at random over the joint ranges and
+collision-checked. `so101-budget fit` puts each placement in the base frame through the wrist chain (S4's camera
+and elbow offset), fits the ZED to all placements, and compares the ZED's ray-plane points with the wrist chain's
+corners, each placement left out of the ZED fit. Record: [budget_wide_20261107_225722](results/s5/budget_wide_20261107_225722.md),
+[heat map](results/s5/heatmap_wide_20261107_225722.png).
+
+- **The ZED is consistent.** The distances between the 7 board placements (5 + S4's 2), measured by the ZED (PnP)
+  and by the arm (wrist chain), agree to 1.25 mm RMS (2.8 mm max, 21 pairs); the ZED sees every placement at the
+  same height to ~2 mm.
+- **The arm is not, away from where S4 calibrated it.** Around S4's taught pose the wrist chain puts the board to
+  ~1.5 mm, and the ZED's ray-plane points land within 1.7-2.1 mm of it on a placement left out. S5's views came
+  from far wider poses (shoulder_lift down to -93 deg, pan to 75 deg); there single views are off by up to 20 px
+  (~7 mm), every corner shifted the same way, and the left-out errors reach 5-9 mm (5.5 mm RMS over all).
+  Two placements seen from few poses had drifted 8-10 mm in height: all fits now share one table height.
+- **What the extra error is not** (left-out-placement reprojection error, all 7 placements, shared table height):
+
+  | Model | Left-out (px) |
+  |---|---:|
+  | elbow offset (as used) | 8.1 |
+  | lift, elbow, wrist_flex offsets | 7.7 |
+  | + upper arm and forearm lengths | no change |
+  | + joint compliance under gravity (deg per N m, lift/elbow/wrist) | 7.8-8.4 |
+  | + wrist_roll error from the camera's weight | 8.3 |
+  | + the camera tilting on its mount with gravity | 6.6 |
+
+  The joints feel stiff by hand under torque, and the wrist camera is fixed-focus. Only the camera-mount term
+  helps, and only partly; the worst placement stays at 14 px. Not resolved; the poses that show it (arm folded
+  far back, camera looking sideways) are not the ones used to grasp.
+- **Budget for pointing** (from the wide run, so pessimistic): ZED click 1 px 0.9 mm, ZED pose with the wrist
+  chain 5.5 mm, arm kinematics 3.1 mm, servos compensated 1.1 mm (6.2 mm without S1's compensation); 6.5 mm
+  total. Near S4's region the first two are ~1 and ~2 mm.
+- **Demo** (`so101-budget point`): click a checker corner in the ZED view; the fixed jaw's tip goes 1 cm above
+  it, servo-compensated. Two points on the iPad near S4's region: the joints put the tip within 0.6 mm of the
+  target; by eye it was on the clicked corner. Not measured with a ruler. Moves between points are refused when
+  the straight joint path dips within 2 cm of the table (a lift between points would fix it).
+- **The shaking the user saw on the way to rest** (`so101-park`): held still, at rest or standing up, no joint
+  moves by one encoder step (0.09 deg) in 6 s. Moving, the joints track within ~0.1-0.15 deg RMS; the only
+  oscillation is the shoulder at ~7 Hz, 0.1 deg, near rest, where gravity loads it with ~0.03 N m (the folded
+  arm's centre of mass sits over the shoulder axis). The forearm shaking seen by eye does not show in the
+  encoders. It does not touch the data (all views are taken after the arm settles).
 
 ## Hardware
 
