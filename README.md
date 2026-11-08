@@ -315,6 +315,9 @@ the board refitted on the other). Report: [handeye_20261107_221446_x2](results/s
   it; `SafeArm` now also keeps the LeRobot reading inside the URDF range (the elbow's upper limit drops from 91.8
   to 84.5 deg). LeRobot's calibration and its recordings are unchanged. `so101-handeye` records the joint map's
   offsets with each run and fits on the readings, so `handeye.yaml`'s offsets are always the whole zero error.
+- **Checked by eye on the arm** (`so101-zero run`): at the model's zero with the offset the forearm is level, as
+  the URDF has it (wrist axis +5 mm over the elbow axis); at LeRobot's zero (before the offset) it points up,
+  as predicted (+22 mm).
 
 ## Hardware
 

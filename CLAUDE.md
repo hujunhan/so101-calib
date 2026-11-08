@@ -21,7 +21,8 @@ and docs/DESIGN.md say what this repo starts from.
   ZED pose ~2.6 mm on the table (one view per placement); S5's extra placements will tighten it. Written into
   so101-core's joint map (elbow -0.127077 rad, rest shifted; SafeArm limits also keep readings in range, elbow max
   84.5 deg); so101-kinematics and so101-calib pins bumped. handeye.yaml offsets are relative to LeRobot readings
-  (whole zero error): code on SafeArm angles adds only (handeye offset - joint map offset). The user is rebuilding the workspace (light box, backdrop): then
+  (whole zero error): code on SafeArm angles adds only (handeye offset - joint map offset). Checked on the arm
+  with `so101-zero run`: forearm level at the model zero, pointing up at LeRobot's zero. The user is rebuilding the workspace (light box, backdrop): then
   re-locate the ZED (command not written yet). iPad ~50 % or the ZED saturates; avoid overhead reflections.
 - **Next:** S5 (error budget; click-to-point).
 
