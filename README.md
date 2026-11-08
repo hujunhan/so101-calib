@@ -12,7 +12,7 @@ splits the end-effector error into its sources:
 Demo target: click a point in the ZED image and the gripper tip goes there; an error heat map over the
 workspace, in mm.
 
-> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). Next: S4 (hand-eye).
+> **Status (2026-11-07):** S1 done: servo timing, a static error model over the workspace at P = 32 (checked with a 100 g payload), and feed-forward compensation that cuts the tracking error on M1's circle 3-5x (0.6-0.7 mm median). S2 (kinematic calibration) tried and stopped: the uncalibrated model is about 8 mm RMS off, and the touch method could not get below 3.5 mm, see below. S3 done: wrist camera calibrated (0.23 px); the ZED 2's factory calibration confirmed (depth metric to ~0.3 %). S4 done: wrist camera in the gripper to ~1.5 mm; the joint zeros are off by up to 5.3 deg (elbow), which cuts held-out error 4x and S2's touch error from ~8 to ~4.5 mm. Next: S5 (error budget, click-to-point).
 
 ## What M1 hands over
 
@@ -273,6 +273,37 @@ Stereolabs and compared. Reports: [wrist](results/s3/wrist_20261107_001917.md),
   ZED view with 7 corners in a row and 1 below wrecked the right eye's fit).
 - Simulation guided how to capture: 15 views covering the whole image are as good as 30, while views only in
   the centre are ~10x worse at the edges (the distortion is extrapolated there).
+
+## S4 result: hand-eye and joint offsets (2026-11-07)
+
+`so101-handeye run`: the iPad board lies still on the table; the user poses the limp arm once over it, then the
+arm moves itself through 8 small and 16 spread poses (collision-checked against the iPad) and the wrist camera
+takes a view at each. `so101-handeye fit` fits the wrist camera in the gripper (X) and the board in the base
+(Y) to all corner pixels, with and without zero offsets of lift, elbow and wrist_flex, and compares them on views
+left out of the fit (4-fold). Report: [handeye_20261107_215410](results/s4/handeye_20261107_215410.md);
+parameters: `results/s4/handeye.yaml`.
+
+| Model | Fit RMS (px) | Held-out RMS (px) | Board centre, camera vs FK: median / max (mm) |
+|---|---:|---:|---|
+| joint zeros as they are | 18.6 | 23.5 | 5.4 / 12.4 |
+| with offsets lift / elbow / wrist = +0.6 / -5.3 / -2.8 deg (+- 1.3 / 1.0 / 0.6) | 4.1 | 5.6 | 1.2 / 3.3 |
+
+- **The joint zeros are off, mostly the elbow (-5.3 deg) and wrist_flex (-2.8 deg).** With the offsets, views
+  left out of the fit are predicted 4x better. This is the error S2 tried to measure: LeRobot's calibration sets
+  each zero from a pose the user judges by eye, so a few degrees are expected.
+- **S2's touches confirm it independently.** Fixing S4's offsets and refitting only the pointer and the dot
+  grid's placement, the hand-guided touches of S2 drop from 8.1 / 8.5 mm RMS to 4.1 / 4.8 mm (two runs), and
+  the error in the distance between touched dots from 8.2 / 9.2 to 3.7 / 3.1 mm: close to the ~3.5 mm that S2's
+  own fits reached (the toothpick's slip). Different method, different day, same offsets.
+- **Wrist camera in the gripper frame** (X): 73 mm along the gripper's y axis, +- 1-1.5 mm, tilted ~25 deg.
+- **The offsets are known to about 1 deg**: leaving one view out moves the elbow offset between -6.0 and -2.7
+  deg. Only 15 of the 24 views had 12+ corners: the gripper jaws cover the lower centre of the wrist image, and
+  the room reflects in the iPad's glass at oblique views (the iPad was dimmed so the ZED does not saturate).
+  More views would tighten them; the S2 check says they are already worth using.
+- **The ZED** (left eye) sits at [38.8, 27.7, 38.2] cm in the base frame, looking down at ~63 deg; the board it
+  sees moved 0.4 mm between before and after the run. This pose holds only until the ZED or the arm is moved
+  (the workspace is to be rebuilt); a short re-run then gives it again from the fixed X.
+- Not yet applied to so101-core's joint map: M2's own code uses `results/s4/handeye.yaml`.
 
 ## Hardware
 
