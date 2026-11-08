@@ -24,7 +24,11 @@ and docs/DESIGN.md say what this repo starts from.
   (whole zero error): code on SafeArm angles adds only (handeye offset - joint map offset). Checked on the arm
   with `so101-zero run`: forearm level at the model zero, pointing up at LeRobot's zero. The user is rebuilding the workspace (light box, backdrop): then
   re-locate the ZED (command not written yet). iPad ~50 % or the ZED saturates; avoid overhead reflections.
-- **Next:** S5 (error budget; click-to-point).
+- **Next:** S5, `so101-budget` written: `plan` (preview), `run` (5 iPad placements on outlines drawn in the ZED
+  view; the arm looks at each from up to 5 collision-checked poses), `fit DIR [S4 dirs] --stack-mm 11` (ZED refit to
+  all placements, leave-one-placement-out ray-plane errors vs the wrist chain, budget, heat map -> results/s5/),
+  `point [--table]` (click in the ZED view; tool point 1 cm above, servo-compensated). The user runs `run`, then
+  Claude runs `fit` (include the two S4 runs if the ZED has not moved), then the user tries `point`.
 
 - For M3 (noted 2026-11-07): the ZED is wide (~100 deg H as calibrated, 110 nominal); the workspace fills a small
   part of the image and the room (people, a cat) the rest. Plan: FHD per eye (factory parameters exist) and a fixed
