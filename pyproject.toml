@@ -24,6 +24,7 @@ so101-track = "so101_calib.track_cli:main"
 so101-touch = "so101_calib.touch_cli:main"
 so101-cam = "so101_calib.cam_cli:main"
 so101-handeye = "so101_calib.handeye_cli:main"
+so101-zero = "so101_calib.zero_cli:main"
 
 [project.optional-dependencies]
 hw = ["so101-core[hw] @ git+https://github.com/hujunhan/so101-core@534b1e91f488768ea92d1f92bbf6cc3459d00bb7"]
